@@ -8,7 +8,7 @@ import pytest
 from conftest import KEY, ROOT
 from huggingface_hub.errors import GatedRepoError, HfHubHTTPError
 from PIL import Image
-from requests import Response
+from requests import HTTPError, Response
 
 from image_lab import prepare
 from image_lab.common import safe_error
@@ -86,13 +86,16 @@ def test_auth_reports_account_without_printing_token(capsys):
 
 
 @pytest.mark.parametrize("status", [401, 403, 503])
-def test_rejected_or_unverifiable_token_stops_before_download(settings, monkeypatch, capsys, status):
+@pytest.mark.parametrize("error_class", [HTTPError, HfHubHTTPError])
+def test_rejected_or_unverifiable_token_stops_before_download(
+    settings, monkeypatch, capsys, status, error_class
+):
     configure_prepare(settings, monkeypatch)
     monkeypatch.setenv("HF_TOKEN", "hf_test_secret")
     api = Mock()
     response = Response()
     response.status_code = status
-    api.whoami.side_effect = HfHubHTTPError("request contained hf_test_secret", response=response)
+    api.whoami.side_effect = error_class("request contained hf_test_secret", response=response)
     monkeypatch.setattr(prepare, "HfApi", lambda **kwargs: api)
     download = Mock()
     monkeypatch.setattr(prepare, "snapshot_download", download)

@@ -25,7 +25,9 @@
 
 **启动默认接管整台机器的 8 张 GPU：会停止已有 GPU 任务。** 权重下载和镜像构建完成后才执行清理，随后检查 CUDA 并启动 API。只想检查时用 `--check`；要保留其他任务时用 `--no-gpu-cleanup`，GPU 忙碌会直接退出。
 
-本次临时测试已提供仓库根目录的 `.hf-token.env`。执行 `git pull --ff-only` 后可直接运行 `./start.sh`，无需填写 HF Token；已有 `.env` 中 `HF_TOKEN` 为空也会自动读取该文件。优先级为调用 shell 的非空 `HF_TOKEN` → `.env` 的非空 `HF_TOKEN` → `.hf-token.env`。临时凭据只用于模型下载，不包含私有仓库、写入或付费推理权限，并从 Docker 构建上下文排除。测试结束后应撤销临时凭据并删除此文件。
+**临时凭据状态：** 本次公开提交的 `.hf-token.env` 已被 Hugging Face 标记为 `Invalidated`，接口返回 HTTP 401；它不能用于下载。必须配置新的、未公开的账号 Token 才能启动受限模型。
+
+启动读取优先级为调用 shell 的非空 `HF_TOKEN` → `.env` 的非空 `HF_TOKEN` → `.hf-token.env`。因此，在 `.env` 中提供有效 Token 即可覆盖失效的临时值。`.hf-token.env` 从 Docker 构建上下文排除。
 
 自行配置账号或更换凭据时：
 

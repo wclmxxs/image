@@ -10,7 +10,8 @@ import time
 from pathlib import Path
 
 from huggingface_hub import HfApi, get_hf_file_metadata, hf_hub_url, snapshot_download
-from huggingface_hub.errors import GatedRepoError, HfHubHTTPError
+from huggingface_hub.errors import GatedRepoError
+from requests import HTTPError
 
 from image_lab.common import atomic_json, safe_error
 from image_lab.config import Registry, Settings
@@ -27,11 +28,11 @@ def verify_auth(api, token):
         return
     try:
         account = api.whoami(token=token)
-    except HfHubHTTPError as error:
+    except HTTPError as error:
         status = getattr(error.response, "status_code", None)
         if status in {401, 403}:
             raise RuntimeError(
-                "HF_TOKEN was rejected by Hugging Face. Check whether it is invalid, revoked, or restricted; replace it in .env or the invoking shell. Token value is not logged."
+                "HF_TOKEN was rejected by Hugging Face. Check whether it is invalid, revoked, or restricted; replace it in .env or the invoking shell (or .hf-token.env if using the fallback). Token value is not logged."
             ) from None
         raise RuntimeError(
             f"Could not verify HF_TOKEN (HTTP {status}); check Hugging Face connectivity and retry."
