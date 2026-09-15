@@ -11,15 +11,21 @@ from conftest import KEY, ROOT
 
 
 @pytest.mark.parametrize(
-    ("configured", "exported", "expected"),
+    ("configured", "exported", "fallback", "expected"),
     [
-        ('"hf_quoted_test_token"', None, "hf_quoted_test_token"),
-        ("'hf_single_quoted_token'", None, "hf_single_quoted_token"),
-        ("", "hf_exported_test_token", "hf_exported_test_token"),
-        ("hf_config_test_token", "hf_override_test_token", "hf_override_test_token"),
+        ('"hf_quoted_test_token"', None, None, "hf_quoted_test_token"),
+        ("'hf_single_quoted_token'", None, None, "hf_single_quoted_token"),
+        ("", "hf_exported_test_token", None, "hf_exported_test_token"),
+        ("hf_config_test_token", "hf_override_test_token", None, "hf_override_test_token"),
+        ("", None, "hf_temporary_test_token", "hf_temporary_test_token"),
+        ("hf_config_test_token", None, "hf_temporary_test_token", "hf_config_test_token"),
+        ("", "hf_exported_test_token", "hf_temporary_test_token", "hf_exported_test_token"),
+        ("", None, None, ""),
     ],
 )
-def test_access_check_uses_resolved_token_without_gpu_operations(tmp_path, configured, exported, expected):
+def test_access_check_uses_resolved_token_without_gpu_operations(
+    tmp_path, configured, exported, fallback, expected
+):
     repo = tmp_path / "repo"
     scripts = repo / "scripts"
     scripts.mkdir(parents=True)
@@ -30,6 +36,8 @@ def test_access_check_uses_resolved_token_without_gpu_operations(tmp_path, confi
     data = tmp_path / "data"
     data.mkdir()
     (repo / ".env").write_text(f"API_KEY={KEY}\nDATA_ROOT={data}\nHF_TOKEN={configured}\n")
+    if fallback is not None:
+        (repo / ".hf-token.env").write_text(f"HF_TOKEN={fallback}\n")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     docker = bin_dir / "docker"
@@ -76,7 +84,8 @@ if args[:2] == ["context", "inspect"]:
     )
     assert result.returncode == 0, result.stderr
     assert "GPU workloads were not inspected or stopped" in result.stdout
-    assert expected not in result.stdout + result.stderr
+    if expected:
+        assert expected not in result.stdout + result.stderr
     assert not gpu_touched.exists()
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     assert [call["args"][0] for call in calls] == ["info", "compose", "context", "build", "run"]
@@ -84,6 +93,7 @@ if args[:2] == ["context", "inspect"]:
     run = calls[-1]
     assert run["token"] == expected
     assert run["args"][run["args"].index("HF_TOKEN") - 1] == "-e"
-    assert expected not in " ".join(run["args"])
+    if expected:
+        assert expected not in " ".join(run["args"])
     assert run["args"][-1] == "--check-only"
     assert "--gpus" not in run["args"]

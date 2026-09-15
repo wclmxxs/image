@@ -1,5 +1,6 @@
 .git
 .env
+.hf-token.env
 .venv
 work
 data

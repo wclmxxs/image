@@ -15,6 +15,9 @@ if [[ -n "$IMAGE_LAB_INCOMING_HF_TOKEN" ]]; then
   export HF_TOKEN="$IMAGE_LAB_INCOMING_HF_TOKEN"
 fi
 unset IMAGE_LAB_INCOMING_HF_TOKEN
+if [[ -z "${HF_TOKEN:-}" && -f .hf-token.env ]]; then
+  source .hf-token.env
+fi
 export HF_TOKEN="${HF_TOKEN:-}"
 export DATA_ROOT="${DATA_ROOT:-/opt/image-lab/data}"
 export PORT="${PORT:-18080}"
