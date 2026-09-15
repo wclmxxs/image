@@ -1,3 +1,4 @@
+import csv
 import io
 import json
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from requests import HTTPError, Response
 from image_lab import prepare
 from image_lab.common import safe_error
 from image_lab.config import Registry
+from scripts import client as client_module
 from scripts.client import Client
 
 
@@ -174,3 +176,67 @@ def test_cli_upload_submit_poll_download_uses_the_actual_http_contract(client, t
     assert job["status"] == "succeeded"
     assert Image.open(output).size == (1024, 1024)
     assert json.loads(output.with_suffix(".json").read_text())["request"]["task"] == "image-edit"
+
+
+def test_caption_file_and_comparison_csv_through_api(client, tmp_path, monkeypatch):
+    def bridge(request, **kwargs):
+        response = client.request(
+            request.get_method(),
+            urlsplit(request.full_url).path,
+            content=request.data,
+            headers=dict(request.header_items()),
+        )
+        assert response.status_code < 400, response.text
+        return io.BytesIO(response.content)
+
+    monkeypatch.setattr("urllib.request.urlopen", bridge)
+    monkeypatch.setenv("API_KEY", KEY)
+    output = tmp_path / "instant.png"
+    caption = ROOT / "config/fox-caption.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "client",
+            "generate",
+            "--model",
+            "ideogram-instant",
+            "--prompt-file",
+            str(caption),
+            "--parameters",
+            '{"prompt_mode":"json"}',
+            "--output",
+            str(output),
+        ],
+    )
+    assert client_module.main() == 0
+    job = json.loads(output.with_suffix(".json").read_text())
+    assert job["request"]["prompt"] == caption.read_text()
+    assert job["request"]["parameters"]["steps"] == 8
+    cases = tmp_path / "cases.jsonl"
+    cases.write_text(
+        json.dumps({"model": "ideogram-instant", "prompt": "fox"})
+        + "\n"
+        + json.dumps({"model": "ideogram", "prompt": "fox", "parameters": {"preset": "V4_TURBO_12"}})
+        + "\n"
+    )
+    report = tmp_path / "comparison"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "client",
+            "benchmark",
+            "--cases",
+            str(cases),
+            "--output",
+            str(report),
+            "--repeat",
+            "1",
+            "--warmup",
+            "0",
+        ],
+    )
+    assert client_module.main() == 0
+    with (report / "summary.csv").open() as stream:
+        rows = {row["model"]: row for row in csv.DictReader(stream)}
+    assert json.loads(rows["ideogram-instant"]["parameters"])["steps"] == 8
+    assert json.loads(rows["ideogram"]["parameters"])["preset"] == "V4_TURBO_12"

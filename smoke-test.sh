@@ -2,7 +2,7 @@
 set -euo pipefail
 # This performs REAL GPU inference on the selected prepared models, with one 1K image per model.
 source "$(dirname "$0")/scripts/env.sh"
-MODELS="${1:-cosmos,flux,ideogram,hunyuan,hunyuan-distil}"
+MODELS="${1:-cosmos,cosmos-4step,flux,flux-turbo,ideogram,ideogram-instant,hunyuan,hunyuan-distil}"
 FAILED=0
 IFS=',' read -ra SELECTED <<< "$MODELS"
 for model in "${SELECTED[@]}"; do

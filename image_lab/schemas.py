@@ -44,9 +44,14 @@ def validate_request(request, model):
     allowed = {
         "bot_task": {"image", "recaption", "think_recaption"},
         "preset": {"V4_QUALITY_48", "V4_DEFAULT_20", "V4_TURBO_12"},
-        "prompt_mode": {"template", "json", "magic"} if model["backend"] == "ideogram" else {"text", "json"},
+        "prompt_mode": {"template", "json", "magic"}
+        if model["backend"] in {"ideogram", "ideogram-instant"}
+        else {"text", "json"},
     }
     for key, values in allowed.items():
         if key in params and (not isinstance(params[key], str) or params[key] not in values):
             raise ValueError(f"{key} must be one of {sorted(values)}")
+    for key, value in model.get("fixed_parameters", {}).items():
+        if params.get(key) != value:
+            raise ValueError(f"{model['name']} requires {key}={value}; its distilled schedule is fixed")
     return {**request.model_dump(), "model": model["id"], "parameters": params, "task": task}

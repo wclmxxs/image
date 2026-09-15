@@ -86,7 +86,7 @@ class DockerRuntime:
             "FLASHINFER_WORKSPACE_BASE": str(root / "cache/flashinfer"),
         }
         # Remote prompt expansion is opt-in. Model downloads never need credentials at runtime.
-        if model["backend"] == "ideogram":
+        if model["backend"] in {"ideogram", "ideogram-instant"}:
             for key in ("IDEOGRAM_API_KEY", "HIVE_TEXT_MODERATION_KEY", "HIVE_VISUAL_MODERATION_KEY"):
                 if os.getenv(key):
                     env[key] = os.environ[key]

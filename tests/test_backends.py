@@ -89,6 +89,7 @@ def test_flux_reference_and_seed_contract(monkeypatch, tmp_path):
     torch = SimpleNamespace(Generator=Mock(return_value=generator))
     monkeypatch.setitem(sys.modules, "torch", torch)
     backend = FluxBackend.__new__(FluxBackend)
+    backend.turbo = False
     backend.pipe = Mock(return_value=SimpleNamespace(images=[Image.new("RGB", (1024, 1024))]))
     reference = tmp_path / "ref.png"
     Image.new("RGB", (32, 32)).save(reference)
@@ -112,6 +113,7 @@ def test_flux_reference_and_seed_contract(monkeypatch, tmp_path):
 
 def test_cosmos_request_matches_official_vllm_schema(monkeypatch):
     backend = CosmosBackend.__new__(CosmosBackend)
+    backend.distilled = False
     backend.url = "http://127.0.0.1:8001"
     buffer = io.BytesIO()
     Image.new("RGB", (1024, 1024)).save(buffer, format="PNG")

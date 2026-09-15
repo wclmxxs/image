@@ -63,21 +63,41 @@ class FakeRuntime:
 @pytest.fixture
 def settings(tmp_path):
     config = json.loads((ROOT / "config/models.json").read_text())
-    # Real auxiliary downloads are outside CPU test scope.
     config = copy.deepcopy(config)
-    config["cosmos"].pop("auxiliary", None)
     registry_path = tmp_path / "models.json"
     registry_path.write_text(json.dumps(config))
     settings = Settings(tmp_path / "data", registry_path, KEY, poll_interval=0.005)
     registry = Registry(settings)
-    for model in registry.models.values():
+    for model in registry.preparation_plan(registry.models):
         if model["id"] == "mage":
             continue
         path = settings.root / "models" / model["id"]
         path.mkdir(parents=True)
+        auxiliary_paths = {}
+        for auxiliary in model.get("auxiliary", []):
+            snapshot = (
+                settings.root
+                / "cache/huggingface/hub"
+                / ("models--" + auxiliary["repo"].replace("/", "--"))
+                / "snapshots"
+                / auxiliary["revision"]
+            )
+            probe = snapshot / auxiliary["probe"]
+            probe.parent.mkdir(parents=True, exist_ok=True)
+            probe.write_text("CPU test fixture")
+            if auxiliary.get("role"):
+                auxiliary_paths[auxiliary["role"]] = str(snapshot)
         atomic_json(
             settings.root / "prepared" / f"{model['id']}.json",
-            {"repo": model["repo"], "revision": model["revision"], "path": str(path)},
+            {
+                "repo": model["repo"],
+                "revision": model["revision"],
+                "path": str(path),
+                "auxiliary": model.get("auxiliary", []),
+                "auxiliary_paths": auxiliary_paths,
+                "allow_patterns": model.get("allow_patterns"),
+                "base": registry.base_snapshot(model),
+            },
         )
     return settings
 

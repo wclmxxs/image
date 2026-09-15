@@ -96,7 +96,9 @@ def main():
     cancel.add_argument("id")
     generate = sub.add_parser("generate")
     generate.add_argument("--model", required=True)
-    generate.add_argument("--prompt", required=True)
+    prompt = generate.add_mutually_exclusive_group(required=True)
+    prompt.add_argument("--prompt")
+    prompt.add_argument("--prompt-file", type=Path, help="UTF-8 text or structured JSON caption file")
     generate.add_argument("--width", type=int, default=1024)
     generate.add_argument("--height", type=int, default=1024)
     generate.add_argument("--seed", type=int, default=42)
@@ -124,7 +126,7 @@ def main():
         job = client.generate(
             {
                 "model": args.model,
-                "prompt": args.prompt,
+                "prompt": args.prompt_file.read_text(encoding="utf-8") if args.prompt_file else args.prompt,
                 "width": args.width,
                 "height": args.height,
                 "seed": args.seed,
@@ -153,6 +155,7 @@ def main():
             "model",
             "width",
             "height",
+            "parameters",
             "iteration",
             "warmup",
             "status",
@@ -180,6 +183,7 @@ def main():
                         "height": case.get("height", 1024),
                         "iteration": iteration,
                         "warmup": iteration < args.warmup,
+                        "parameters": json.dumps(case.get("parameters", {}), sort_keys=True),
                     }
                     try:
                         job = client.generate(payload, root / f"case-{index}-{iteration}.png")
@@ -188,6 +192,7 @@ def main():
                             error=job.get("error", ""),
                             queue_seconds=job.get("queue_seconds"),
                             client_seconds=job["client_seconds"],
+                            parameters=json.dumps(job["request"]["parameters"], sort_keys=True),
                         )
                         row.update({k: job.get("load", {}).get(k) for k in ("cold_start", "load_seconds")})
                         row.update(

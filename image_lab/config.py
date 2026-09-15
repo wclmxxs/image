@@ -49,6 +49,37 @@ class Registry:
             raise ValueError(f"Unknown model: {name}")
         return copy.deepcopy(self.models[key])
 
+    def preparation_plan(self, names):
+        """Resolve shared base checkpoints before adapters, downloading each only once."""
+        ordered, visiting, done = [], set(), set()
+
+        def visit(name):
+            model = self.resolve(name)
+            key = model["id"]
+            if key in visiting:
+                raise ValueError(f"Cyclic base_model dependency: {key}")
+            if key in done:
+                return
+            visiting.add(key)
+            if model.get("base_model"):
+                visit(model["base_model"])
+            visiting.remove(key)
+            done.add(key)
+            ordered.append(model)
+
+        for name in names:
+            visit(name)
+        return ordered
+
+    def base_snapshot(self, model):
+        if not model.get("base_model"):
+            return None
+        base = self.resolve(model["base_model"])
+        prepared = self.prepared(base)
+        if prepared is None:
+            return None
+        return {"id": base["id"], **{key: prepared[key] for key in ("repo", "revision", "path")}}
+
     def prepared(self, model):
         marker = self.settings.root / "prepared" / f"{model['id']}.json"
         if not marker.exists():
@@ -60,6 +91,12 @@ class Registry:
             return None
         if item.get("auxiliary", []) != model.get("auxiliary", []):
             return None
+        if item.get("allow_patterns") != model.get("allow_patterns"):
+            return None
+        if model.get("base_model"):
+            base = self.base_snapshot(model)
+            if base is None or item.get("base") != base:
+                return None
         for auxiliary in model.get("auxiliary", []):
             repo_cache = (
                 self.settings.root
@@ -67,6 +104,10 @@ class Registry:
                 / ("models--" + auxiliary["repo"].replace("/", "--"))
             )
             if not (repo_cache / "snapshots" / auxiliary["revision"] / auxiliary["probe"]).is_file():
+                return None
+            if auxiliary.get("role") and item.get("auxiliary_paths", {}).get(auxiliary["role"]) != str(
+                repo_cache / "snapshots" / auxiliary["revision"]
+            ):
                 return None
         return item
 

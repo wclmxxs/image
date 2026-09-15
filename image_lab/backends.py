@@ -12,6 +12,10 @@ from pathlib import Path
 
 from PIL import Image
 
+from image_lab.common import safe_error
+
+TURBO_SIGMAS = (1.0, 0.6509, 0.4374, 0.2932, 0.1893, 0.1108, 0.0495, 0.00031)
+
 
 def json_caption(prompt):
     caption = json.loads(prompt)
@@ -48,12 +52,17 @@ class FluxBackend:
         from diffusers import Flux2Pipeline
 
         placement = {"device_map": "balanced"} if len(model["gpus"]) > 1 else {}
+        self.turbo = bool(model.get("lora_weight"))
         self.pipe = Flux2Pipeline.from_pretrained(
-            model["weights"]["path"],
+            (model["weights"].get("base") or model["weights"])["path"],
             torch_dtype=torch.bfloat16,
             local_files_only=True,
             **placement,
         )
+        if self.turbo:
+            self.pipe.load_lora_weights(
+                model["weights"]["path"], weight_name=model["lora_weight"], local_files_only=True
+            )
         if not placement:
             self.pipe.to("cuda")
 
@@ -61,6 +70,8 @@ class FluxBackend:
         import torch
 
         kwargs = {}
+        if self.turbo:
+            kwargs["sigmas"] = list(TURBO_SIGMAS)
         if job["image_paths"]:
             kwargs["image"] = [Image.open(p).convert("RGB") for p in job["image_paths"]]
         params = job["parameters"]
@@ -73,7 +84,12 @@ class FluxBackend:
             generator=torch.Generator("cpu").manual_seed(job["seed"]),
             **kwargs,
         ).images[0]
-        return image, {"effective_prompt": job["prompt"], "prompt_mode": "text", "prompt_seconds": 0}
+        return image, {
+            "effective_prompt": job["prompt"],
+            "prompt_mode": "text",
+            "prompt_seconds": 0,
+            "sampling_schedule": "fal-turbo-8step" if self.turbo else "default",
+        }
 
 
 class HunyuanBackend:
@@ -135,8 +151,8 @@ class IdeogramBackend:
             dtype=torch.bfloat16,
         )
 
-    def generate(self, job):
-        from ideogram4 import MAGIC_PROMPTS, PRESETS
+    def prepare_prompt(self, job):
+        from ideogram4 import MAGIC_PROMPTS
         from ideogram4.magic_prompt import aspect_ratio_from_size
 
         params = job["parameters"]
@@ -158,10 +174,17 @@ class IdeogramBackend:
         prompt_seconds = time.monotonic() - began
         text_key = os.getenv("HIVE_TEXT_MODERATION_KEY")
         visual_key = os.getenv("HIVE_VISUAL_MODERATION_KEY")
-        if text_key or visual_key:
-            from ideogram4.safety import moderate_image, moderate_prompt
-        if text_key and moderate_prompt(prompt, text_key):
-            raise ValueError("Prompt rejected by configured Hive text moderation")
+        if text_key:
+            from ideogram4.safety import moderate_prompt
+
+            if moderate_prompt(prompt, text_key):
+                raise ValueError("Prompt rejected by configured Hive text moderation")
+        return prompt, prompt_seconds, text_key, visual_key
+
+    def sample(self, job, prompt):
+        from ideogram4 import PRESETS
+
+        params = job["parameters"]
         preset = PRESETS[params["preset"]]
         images = self.pipe(
             prompt,
@@ -174,17 +197,81 @@ class IdeogramBackend:
             std=preset.std,
             raise_on_caption_issues=True,
         )
-        if visual_key and moderate_image(images[0], visual_key):
+        return images[0], {"steps": preset.num_steps}
+
+    def generate(self, job):
+        prompt, prompt_seconds, text_key, visual_key = self.prepare_prompt(job)
+        image, details = self.sample(job, prompt)
+        if visual_key:
+            from ideogram4.safety import moderate_image
+
+        if visual_key and moderate_image(image, visual_key):
             raise ValueError("Output rejected by configured Hive visual moderation")
-        return images[0], {
+        return image, {
             "effective_prompt": prompt,
-            "prompt_mode": mode,
+            "prompt_mode": job["parameters"]["prompt_mode"],
             "prompt_seconds": prompt_seconds,
-            "steps": preset.num_steps,
+            **details,
             "safety": {
                 "text": "hive" if text_key else "not_configured",
                 "image": "hive" if visual_key else "not_configured",
             },
+        }
+
+
+class IdeogramInstantBackend(IdeogramBackend):
+    def __init__(self, model):
+        import torch
+        from diffusers import Ideogram4Pipeline, Ideogram4Transformer2DModel
+
+        # Publisher's compatibility shim: Diffusers 0.39 requires an unconditional
+        # module, but this checkpoint already distilled CFG into the positive branch.
+        class ZeroUnconditionalTransformer(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.register_buffer("_dtype_anchor", torch.empty(0, dtype=torch.bfloat16), persistent=False)
+
+            @property
+            def dtype(self):
+                return self._dtype_anchor.dtype
+
+            def forward(self, *, hidden_states, **kwargs):
+                return (torch.zeros_like(hidden_states),)
+
+        transformer = Ideogram4Transformer2DModel.from_pretrained(
+            model["weights"]["path"],
+            subfolder="transformer",
+            torch_dtype=torch.bfloat16,
+            local_files_only=True,
+        )
+        self.pipe = Ideogram4Pipeline.from_pretrained(
+            model["weights"]["auxiliary_paths"]["components"],
+            transformer=transformer,
+            unconditional_transformer=None,
+            torch_dtype=torch.bfloat16,
+            local_files_only=True,
+        )
+        self.pipe.register_modules(unconditional_transformer=ZeroUnconditionalTransformer())
+        self.pipe.to("cuda")
+
+    def sample(self, job, prompt):
+        import torch
+
+        image = self.pipe(
+            prompt,
+            width=job["width"],
+            height=job["height"],
+            num_inference_steps=8,
+            guidance_scale=1.0,
+            guidance_schedule=None,
+            mu=0.0,
+            std=1.75,
+            generator=torch.Generator("cuda").manual_seed(job["seed"]),
+        ).images[0]
+        return image, {
+            "steps": 8,
+            "sampling_schedule": "fal-instant-diffusers-0.39",
+            "runtime_note": "Public BF16 pre-QAD checkpoint; not bit-exact with fal's optimized runtime",
         }
 
 
@@ -211,6 +298,8 @@ class MageBackend:
 class CosmosBackend:
     def __init__(self, model):
         self.url = "http://127.0.0.1:8001"
+        self.distilled = model.get("distilled", False)
+        hsdp_args = ["--use-hsdp", "--hsdp-shard-size", "4"] if self.distilled else []
         self.process = subprocess.Popen(
             [
                 "vllm",
@@ -229,6 +318,7 @@ class CosmosBackend:
                 "1",
                 "--init-timeout",
                 "3000",
+                *hsdp_args,
             ]
         )
         deadline = time.monotonic() + 3300
@@ -251,20 +341,24 @@ class CosmosBackend:
             "prompt": prompt,
             "size": f"{job['width']}x{job['height']}",
             "n": 1,
-            "num_inference_steps": params["steps"],
             "guidance_scale": params["guidance"],
-            "flow_shift": 3.0,
             "negative_prompt": "",
             "seed": job["seed"],
             "extra_args": {"use_resolution_template": False, "guardrails": True},
         }
+        if not self.distilled:
+            payload.update(num_inference_steps=params["steps"], flow_shift=3.0)
         request = urllib.request.Request(
             self.url + "/v1/images/generations",
             json.dumps(payload).encode(),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(request, timeout=7200) as response:
-            data = json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=7200) as response:
+                data = json.load(response)
+        except urllib.error.HTTPError as error:
+            body = error.read(8192).decode(errors="replace")
+            raise RuntimeError(f"Cosmos upstream HTTP {error.code}: {safe_error(body)}") from None
         image = Image.open(io.BytesIO(base64.b64decode(data["data"][0]["b64_json"], validate=True))).convert(
             "RGB"
         )
@@ -273,6 +367,7 @@ class CosmosBackend:
             "prompt_mode": params["prompt_mode"],
             "prompt_seconds": 0,
             "safety": "upstream guardrails enabled",
+            "sampling_schedule": "checkpoint-fixed-4step" if self.distilled else "flow-shift-3",
         }
 
 
@@ -281,6 +376,7 @@ def load_backend(model):
         "cosmos": CosmosBackend,
         "flux": FluxBackend,
         "ideogram": IdeogramBackend,
+        "ideogram-instant": IdeogramInstantBackend,
         "hunyuan": HunyuanBackend,
         "mage": MageBackend,
     }

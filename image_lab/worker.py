@@ -58,7 +58,16 @@ def main():
     inbox = session / "inbox"
     inbox.mkdir(exist_ok=True)
     versions = {}
-    for name in ("torch", "diffusers", "transformers", "vllm", "vllm-omni", "flashinfer-python"):
+    for name in (
+        "torch",
+        "diffusers",
+        "transformers",
+        "peft",
+        "ideogram-4",
+        "vllm",
+        "vllm-omni",
+        "flashinfer-python",
+    ):
         try:
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:

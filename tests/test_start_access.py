@@ -186,3 +186,42 @@ def test_prompt_requires_terminal_before_any_docker_operation(start_harness):
     assert result.returncode == 2
     assert "requires an interactive terminal" in result.stderr
     assert not harness.log.exists()
+
+
+@pytest.mark.parametrize(
+    "models", ["flux-turbo,ideogram-instant,cosmos-4step", "flux,flux-turbo,cosmos,cosmos-4step"]
+)
+def test_start_builds_registry_images_and_shared_backends_once(start_harness, models):
+    harness = start_harness
+    (harness.repo / ".env").write_text(f"API_KEY={KEY}\nDATA_ROOT={harness.data}\nHF_TOKEN=\n")
+    (harness.repo / "scripts/preflight.sh").write_text("#!/bin/sh\nexit 0\n")
+    (harness.repo / "scripts/gpu_cleanup.py").write_text("# No real GPUs in this shell contract test.\n")
+    stop = harness.repo / "stop.sh"
+    stop.write_text("#!/bin/sh\nexit 0\n")
+    stop.chmod(0o755)
+    flock = harness.log.parent / "bin/flock"
+    flock.write_text("#!/bin/sh\nexit 0\n")
+    flock.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "start.sh", "--models", models, "--no-gpu-cleanup"],
+        cwd=harness.repo,
+        env=harness.env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    calls = [json.loads(line)["args"] for line in harness.log.read_text().splitlines()]
+    builds = [call for call in calls if call[0] == "build"]
+    tags = [call[call.index("-t") + 1] for call in builds]
+    assert tags.count("image-lab/flux:0.1.0") == 1
+    assert tags.count("image-lab/cosmos:0.1.0") == 1
+    assert tags.count("image-lab/base-cu126:0.1.0") == 1
+    assert not any(
+        "docker/flux-turbo.Dockerfile" in call or "docker/cosmos-4step.Dockerfile" in call for call in builds
+    )
+    if "ideogram-instant" in models:
+        assert tags.count("image-lab/ideogram-instant:0.1.0") == 1
+    cuda_checks = [call for call in calls if "--gpus" in call]
+    assert len(cuda_checks) == (3 if "ideogram-instant" in models else 2)
+    assert calls[-1][:4] == ["compose", "up", "-d", "--force-recreate"]

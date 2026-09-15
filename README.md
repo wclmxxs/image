@@ -2,15 +2,18 @@
 
 在一台 8×H200 Linux 机器上，用模型名调用生图／编辑模型。提供统一 REST API、固定版本权重下载、独立 Docker 推理环境、串行队列和 1K／2K 测试工具。
 
-**交付状态：部署代码和 CPU 控制层测试已完成；尚未在 H200 上构建容器或完成真实推理验收。** GPU 数量是初始配置，不是性能实测。Mage 的官方代码已接入，但目前未核实到可下载的 Edit 权重，默认只准备其余五个模型。
+**交付状态：原版 Cosmos、FLUX、Ideogram 及两款 Hunyuan 已在 AWS H200 完成 1K 出图测试；新增三个蒸馏版本已通过 CPU 适配测试，待部署后验证实际出图与速度。** 2K 仍有模型／运行时限制，不能视为全部通过。Mage 未核实到可下载的 Edit 权重，默认准备其余八个模型。
 
 ## 支持的模型
 
 | 调用名 | 型号 | 本仓库适配能力 | 可见 GPU | 默认采样 |
 | --- | --- | --- | --- | --- |
 | `cosmos` | Cosmos3-Super-Text2Image | 文生图，vLLM-Omni | 0–3 | 50 步，CFG 4 |
+| `cosmos-4step` | Cosmos3-Super-Text2Image-4Step | 文生图，vLLM-Omni，HSDP | 0–3 | 固定 4 步，无 CFG |
 | `flux` | FLUX.2 dev | 文生图、参考图编辑 | 0 | 50 步，CFG 4 |
+| `flux-turbo` | fal/FLUX.2-dev-Turbo | 文生图、参考图编辑，复用 FLUX 底模 | 0 | 固定 8 步，guidance 2.5 |
 | `ideogram` | Ideogram 4 官方 FP8 | 文生图 | 0 | QUALITY 48 步 |
+| `ideogram-instant` | fal/ideogram-v4-instant BF16 | 文生图，独立 Diffusers 环境 | 0 | 固定 8 步，无 CFG |
 | `hunyuan` | HunyuanImage-3.0 | 文生图 | 0–3 | 50 步 |
 | `hunyuan-distil` | HunyuanImage-3.0-Instruct-Distil | 文生图、参考图编辑 | 0–7 | 8 步，think_recaption |
 | `mage` | Mage-Flow-Edit | 参考图编辑，需要本地权重 | 0 | 30 步，CFG 5 |
@@ -35,7 +38,7 @@ git pull --ff-only && ./start.sh --ask-hf-token
 
 自行配置账号或更换凭据时：
 
-1. 用同一个 Hugging Face 账号取得 [FLUX.2-dev](https://huggingface.co/black-forest-labs/FLUX.2-dev)、[Ideogram 4 FP8](https://huggingface.co/ideogram-ai/ideogram-4-fp8)、[Cosmos Guardrail](https://huggingface.co/nvidia/Cosmos-1.0-Guardrail) 的访问权。需要审批的仓库须等待批准，再从该账号的 [Token 设置](https://huggingface.co/settings/tokens) 创建读取 Token；如果使用 fine-grained Token，还需允许读取账号有权访问的 public gated repositories。
+1. 用同一个 Hugging Face 账号取得 [FLUX.2-dev](https://huggingface.co/black-forest-labs/FLUX.2-dev)、[Ideogram 4 FP8](https://huggingface.co/ideogram-ai/ideogram-4-fp8)、[Cosmos Guardrail](https://huggingface.co/nvidia/Cosmos-1.0-Guardrail) 的访问权。新增 Instant 还需单独取得 [fal/ideogram-v4-instant](https://huggingface.co/fal/ideogram-v4-instant) 和 [Ideogram 共享组件](https://huggingface.co/ideogram-ai/ideogram-4-nf4-diffusers) 的访问权；原 FP8 仓库授权不自动覆盖这两个仓库。需要审批的仓库须等待批准，再从该账号的 [Token 设置](https://huggingface.co/settings/tokens) 创建读取 Token；如果使用 fine-grained Token，还需允许读取账号有权访问的 public gated repositories。
 2. 首次启动会自动创建 `.env`；需要修改数据目录时可先执行 `cp config/env.example .env` 并编辑 `DATA_ROOT`，已有 `.env` 时直接编辑，避免覆盖配置。推荐把数据目录设成已挂载的数据盘目录，例如 `/mnt/nvme/image-lab`。`API_KEY` 留空时由脚本生成并保存在 `.env`，不会打印。Token 可以通过 `--ask-hf-token` 在启动时输入，也可自行设置 `.env` 中的 `HF_TOKEN`。
 3. 在 AWS 上进入仓库，执行：
 
@@ -49,6 +52,7 @@ git pull --ff-only && ./start.sh --ask-hf-token
 
 ```bash
 ./start.sh --models flux,hunyuan-distil   # 只准备部分模型
+./start.sh --models cosmos-4step,flux-turbo,ideogram-instant --ask-hf-token # 只新增三个蒸馏版
 ./start.sh --check-access               # 只检查下载权限，不查询／停止 GPU 任务
 ./start.sh --check-access --ask-hf-token # 隐藏输入 Token 后，只检查下载权限
 ./start.sh --models ideogram --check     # 主机／访问权预检，不下载大权重、不启动服务
@@ -58,6 +62,8 @@ git pull --ff-only && ./start.sh --ask-hf-token
 ```
 
 `--models` 选择本次准备和构建的模型，其他已缓存模型仍保留。重跑启动会重建 API，当前运行任务标为 `interrupted`，排队任务恢复。停止只清理本部署的容器，保留权重与结果。
+
+`flux-turbo` 自动准备并复用同版本 `flux` 底模，只额外下载约 2.76GB LoRA，不再复制一份 FLUX 权重。已有部署新增 Cosmos 4Step 约需 131GB 独立权重；Instant 的 transformer 约 18.56GB，另需文本编码器／VAE 等共享组件。Instant 不下载共享仓库中的原版正向／负向 transformer。所有依赖也参与下载前的权限检查，并固定 revision、记录在结果中。
 
 遇到 `401/403` 或 `GatedRepoError`，先执行 `./start.sh --check-access`。此命令准备配置／数据目录、构建 CPU 下载助手镜像并验证未缓存权重的下载权限，不下载模型大权重，也不检查或清理 GPU。输出区分缺少 Token、Token 被拒绝和仓库权限不足，并显示当前认证用户名及需要申请访问的仓库链接。所有所选模型通过权限检查后，正常启动才开始下载权重。
 
@@ -95,11 +101,18 @@ GPU 清理会先记录 PID、容器、systemd 服务和显存占用：
 ./lab generate --model ideogram --prompt 'A coffee shop poster with the title MORNING' \
   --parameters '{"preset":"V4_QUALITY_48","prompt_mode":"template"}'
 
+./lab generate --model flux-turbo --prompt 'A red fox beside a ceramic cup, photograph.' \
+  --output results/flux-turbo-1k.png
+./lab generate --model cosmos-4step --prompt 'A red fox beside a ceramic cup, photograph.' \
+  --output results/cosmos-4step-1k.png
+./lab generate --model ideogram-instant --prompt-file config/fox-caption.json \
+  --parameters '{"prompt_mode":"json"}' --output results/ideogram-instant-1k.png
+
 ./lab job JOB_ID
 ./lab cancel JOB_ID
 ```
 
-每次保存 PNG 和同名 JSON。多参考图重复传 `--image`。远程客户端可复制 `scripts/client.py`，设置环境变量 `API_KEY`，使用 `python3 client.py --url http://HOST:18080 ...`。
+每次保存 PNG 和同名 JSON。`--prompt-file` 读取 UTF-8 文本或 JSON 提示词，与 `--prompt` 二选一；传 JSON 文件时还需设置 `prompt_mode=json`。多参考图重复传 `--image`。远程客户端可复制 `scripts/client.py`，设置环境变量 `API_KEY`，使用 `python3 client.py --url http://HOST:18080 ...`。
 
 | 方法与路径 | 用途 |
 | --- | --- |
@@ -132,6 +145,23 @@ GPU 清理会先记录 PID、容器、systemd 服务和显存占用：
 
 ## 1K／2K 跑批与时间口径
 
+对比原版与蒸馏版：
+
+```bash
+# 八个模型的 1K；同时对照原 Ideogram 12 步和原 Cosmos 12 步。
+./lab benchmark --cases config/benchmark-variants.jsonl --repeat 2 --warmup 1
+# 先只测新增版本，也可用 --models 筛选：
+./lab benchmark --cases config/benchmark-variants.jsonl --models cosmos-4step,flux-turbo,ideogram-instant --repeat 2 --warmup 1
+# 2K 实验批次，不包含已知不支持该原生尺寸的两款 Hunyuan。
+./lab benchmark --cases config/benchmark-variants-2k.jsonl --repeat 2 --warmup 1
+```
+
+两个新批次使用同一红狐场景。原 Ideogram 与 Instant 使用同一份完整 [JSON 提示词](config/fox-caption.json)；其他模型使用同一句普通文本。CSV 记录实际合并后的 `parameters`，可区分原版 48／12 步与蒸馏 8 步，不能只按模型名汇总。相同 seed 不代表不同模型使用相同初始噪声。
+
+2026-09-15 的既有测试中，Hunyuan 两款拒绝 2048×2048；原 Cosmos 2K 返回上游错误。新版会保留 Cosmos 的具体错误正文供定位，未宣称修复其 2K 支持。新蒸馏版的 2K 效果与速度均待实测；Instant 发布者的推荐参数以 1024×1024 为基准。
+
+原有测试入口仍可用：
+
 ```bash
 ./smoke-test.sh flux,hunyuan-distil
 ./lab benchmark --models flux,hunyuan-distil --repeat 3 --warmup 1
@@ -154,6 +184,16 @@ GPU 清理会先记录 PID、容器、systemd 服务和显存占用：
 | `client_seconds` | 上传、排队、加载、生成到收到完成状态，不含最后下载 PNG |
 
 Cosmos 在 vLLM 子进程中执行，wrapper 的 PyTorch 峰值不能代表其显存；`nvidia-smi` 记录是完成后的快照，不是全程峰值。这里不提供未经 H200 实测的秒数。
+
+## 蒸馏版本与固定采样
+
+- [Cosmos 4Step](https://huggingface.co/nvidia/Cosmos3-Super-Text2Image-4Step)：独立蒸馏权重，读取 checkpoint 的 `fixed_step_sampler_config.t_list`，请求不向 vLLM 传 `num_inference_steps` 或 `flow_shift`。使用发布者的四卡 HSDP 配置，guidance 固定 1，Guardrail 保持开启。已检查锁定镜像中的实现支持此调度。
+- [FLUX Turbo](https://huggingface.co/fal/FLUX.2-dev-Turbo)：加载独立 LoRA，使用发布者的八个 sigma，固定 8 步／guidance 2.5；复用原版底模，但不同调用名分别加载 worker，避免 LoRA 污染原版测试。
+- [Ideogram Instant](https://huggingface.co/fal/ideogram-v4-instant)：采用发布者的 Diffusers 0.39.0 兼容方案，固定 8 步／guidance 1、`mu=0`、`std=1.75`；不加载原版负向网络。公开权重是 QAD 前的 BF16，原版 `ideogram` 仍走原来的官方 FP8 推理代码。发布者说明 stock Diffusers 与 fal 优化运行时在终点时间步和频率表修正上存在差别，因此不能保证像素一致，也不能套用托管 API 延迟。
+
+三款新增模型不接受偏离上述采样的 `steps`／`guidance`，错误请求返回 422。需要探索可变低步数时，继续用 `cosmos` 的 `steps`、`ideogram` 的 `V4_TURBO_12`／`V4_DEFAULT_20`／`V4_QUALITY_48`。结果 JSON 同时保留请求参数和 `sampling_schedule`。
+
+本次未加入 `ideogram-v4-fast`：其 QAD 权重面向 FP4 打包与专用运行时，直接按 BF16 加载不能保证质量；H200 也不能直接使用 Blackwell 原生 NVFP4 路径。Baseten 的 8 步 FLUX 缺少足够的采样说明，社区 Turbotime 及 Mage Turbo 也尚未完成此仓库的运行时／权重核验。它们不会作为“可用型号”静默映射到原版。Klein 属于另一组小模型，本次未接入。
 
 ## 提示词、质量与外部依赖
 

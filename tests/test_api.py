@@ -13,7 +13,7 @@ def test_auth_and_health(client):
     assert client.get("/health", headers={"Authorization": ""}).status_code == 200
     assert client.get("/v1/models", headers={"Authorization": "Bearer wrong"}).status_code == 401
     response = client.get("/v1/models").json()
-    assert len(response["data"]) == 6
+    assert len(response["data"]) == 9
     assert next(m for m in response["data"] if m["id"] == "mage")["status"] == "unavailable"
 
 

@@ -1,0 +1,44 @@
+{
+  "high_level_description": "A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.",
+  "style_description": {
+    "aesthetics": "Natural, realistic, detailed animal photograph.",
+    "lighting": "Soft morning sunlight illuminates the fox and the ceramic cup.",
+    "photo": "Sharp fur details and realistic textures, with a softly blurred background.",
+    "medium": "photograph"
+  },
+  "compositional_deconstruction": {
+    "background": "A quiet interior with a wooden table and soft morning light. The background is softly out of focus.",
+    "elements": [
+      {
+        "type": "obj",
+        "bbox": [
+          100,
+          70,
+          950,
+          640
+        ],
+        "desc": "A red fox sitting on the wooden table. The animal has orange-red fur, a white chest, pointed ears and a bushy tail. It is beside the cup."
+      },
+      {
+        "type": "obj",
+        "bbox": [
+          610,
+          650,
+          900,
+          880
+        ],
+        "desc": "A ceramic cup resting on the wooden table beside the red fox."
+      },
+      {
+        "type": "obj",
+        "bbox": [
+          700,
+          0,
+          1000,
+          1000
+        ],
+        "desc": "A wooden tabletop with visible natural wood grain, supporting the fox and the ceramic cup."
+      }
+    ]
+  }
+}

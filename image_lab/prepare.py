@@ -16,7 +16,7 @@ from requests import HTTPError
 from image_lab.common import atomic_json, safe_error
 from image_lab.config import Registry, Settings
 
-DEFAULT_MODELS = "cosmos,flux,ideogram,hunyuan,hunyuan-distil"
+DEFAULT_MODELS = "cosmos,cosmos-4step,flux,flux-turbo,ideogram,ideogram-instant,hunyuan,hunyuan-distil"
 
 
 def verify_auth(api, token):
@@ -83,7 +83,7 @@ def main():
     args = parser.parse_args()
     settings = Settings.from_env()
     registry = Registry(settings)
-    models = [registry.resolve(name.strip()) for name in args.models.split(",") if name.strip()]
+    models = registry.preparation_plan(name.strip() for name in args.models.split(",") if name.strip())
     if not models:
         raise ValueError("At least one model must be selected")
     token = os.getenv("HF_TOKEN", "").strip() or False
@@ -110,6 +110,10 @@ def main():
                 for item in info.siblings
                 if not any(
                     fnmatch.fnmatch(item.rfilename, pattern) for pattern in model.get("ignore_patterns", [])
+                )
+                and (
+                    not model.get("allow_patterns")
+                    or any(fnmatch.fnmatch(item.rfilename, pattern) for pattern in model["allow_patterns"])
                 )
             ]
             weight = next(item for item in files if item.rfilename.endswith(".safetensors"))
@@ -144,6 +148,7 @@ def main():
         target = settings.root / "models" / model["id"]
         target.mkdir(parents=True, exist_ok=True)
         manifest = None
+        auxiliary_paths = {}
         if local_source:
             if local_source != target.resolve():
                 shutil.copytree(local_source, target, dirs_exist_ok=True)
@@ -157,6 +162,7 @@ def main():
                 token=token,
                 max_workers=8,
                 ignore_patterns=model.get("ignore_patterns"),
+                allow_patterns=model.get("allow_patterns"),
             )
             for auxiliary in model.get("auxiliary", []):
                 cache_dir = settings.root / "cache/huggingface/hub"
@@ -174,6 +180,8 @@ def main():
                 refs = downloaded.parent.parent / "refs"
                 refs.mkdir(exist_ok=True)
                 (refs / "main").write_text(auxiliary["revision"])
+                if auxiliary.get("role"):
+                    auxiliary_paths[auxiliary["role"]] = str(downloaded)
         marker = {
             "repo": model["repo"],
             "revision": model["revision"],
@@ -181,7 +189,13 @@ def main():
             "prepared_at": time.time(),
             "source": "local" if local_source else "huggingface",
             "auxiliary": model.get("auxiliary", []),
+            "allow_patterns": model.get("allow_patterns"),
+            "auxiliary_paths": auxiliary_paths,
         }
+        if model.get("base_model"):
+            marker["base"] = registry.base_snapshot(model)
+            if marker["base"] is None:
+                raise RuntimeError(f"Base snapshot was not prepared: {model['base_model']}")
         if manifest:
             import json
 

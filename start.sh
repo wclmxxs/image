@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 PROFILE=aws-8xh200
-MODELS=cosmos,flux,ideogram,hunyuan,hunyuan-distil
+MODELS=cosmos,cosmos-4step,flux,flux-turbo,ideogram,ideogram-instant,hunyuan,hunyuan-distil
 INSTALL_RUNTIME=0
 CHECK_ONLY=0
 CHECK_ACCESS_ONLY=0
@@ -17,7 +17,7 @@ while [[ $# -gt 0 ]]; do
     --ask-hf-token) ASK_HF_TOKEN=1; shift ;;
     --no-gpu-cleanup) CLEAN_GPU=0; shift ;;
     --help|-h)
-      echo 'Usage: ./start.sh [--profile aws-8xh200] [--models cosmos,flux,ideogram,hunyuan,hunyuan-distil,mage] [--install-runtime] [--check | --check-access] [--ask-hf-token] [--no-gpu-cleanup]'
+      echo 'Usage: ./start.sh [--profile aws-8xh200] [--models cosmos,cosmos-4step,flux,flux-turbo,ideogram,ideogram-instant,hunyuan,hunyuan-distil,mage] [--install-runtime] [--check | --check-access] [--ask-hf-token] [--no-gpu-cleanup]'
       exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
@@ -73,31 +73,49 @@ if [[ "$CHECK_ONLY" == 1 ]]; then
   exit 0
 fi
 docker run "${PREPARE_ARGS[@]}" image-lab/controller:0.1.0 python -m image_lab.prepare --models "$MODELS"
-case ",$MODELS," in
-  *,flux,*|*,ideogram,*|*,mage,*) docker build -f docker/base.Dockerfile -t image-lab/base-cu126:0.1.0 . ;;
-esac
-case ",$MODELS," in
-  *,hunyuan,*|*,hunyuan-distil,*) docker build -f docker/base.Dockerfile --build-arg CUDA_IMAGE=nvidia/cuda@sha256:520292dbb4f755fd360766059e62956e9379485d9e073bbd2f6e3c20c270ed66 -t image-lab/base-cu128:0.1.0 . ;;
-esac
-BUILT=,
-BUILT_BACKENDS=()
-IFS=',' read -ra SELECTED <<< "$MODELS"
-for model in "${SELECTED[@]}"; do
-  backend="$model"
-  if [[ "$model" == hunyuan-distil ]]; then backend=hunyuan; fi
-  if [[ "$BUILT" == *",$backend,"* ]]; then continue; fi
+# Model IDs need not equal backends: the base and distilled checkpoints can share
+# an image. Build exactly the registry images, once each, including variant-only starts.
+export SELECTED_MODELS="$MODELS"
+BUILD_PLAN="$(python3 - <<'PYPLAN'
+import json, os
+models = json.load(open('config/models.json'))
+seen = set()
+for key in os.environ['SELECTED_MODELS'].split(','):
+    model = models[key]
+    pair = (model['backend'], model['image'])
+    if pair not in seen:
+        print(*pair)
+        seen.add(pair)
+PYPLAN
+)"
+BUILT_BASES=,
+BUILT_IMAGES=()
+while read -r backend worker_image; do
+  BASE_ARGS=()
+  case "$backend" in
+    flux|ideogram|ideogram-instant|mage) base=cu126 ;;
+    hunyuan)
+      base=cu128
+      BASE_ARGS+=(--build-arg CUDA_IMAGE=nvidia/cuda@sha256:520292dbb4f755fd360766059e62956e9379485d9e073bbd2f6e3c20c270ed66)
+      ;;
+    cosmos) base= ;;
+    *) echo "Unknown build backend: $backend" >&2; exit 2 ;;
+  esac
+  if [[ -n "$base" && "$BUILT_BASES" != *",$base,"* ]]; then
+    docker build -f docker/base.Dockerfile ${BASE_ARGS[@]+"${BASE_ARGS[@]}"} -t "image-lab/base-$base:0.1.0" .
+    BUILT_BASES="$BUILT_BASES$base,"
+  fi
   BUILD_ARGS=()
   if [[ "$backend" == cosmos ]]; then
     COSMOS_DIGEST=vllm/vllm-omni@sha256:6d2630c7d637b699557573f2c3fee8df5d4d0cd718977aa22549ed6a6ef30587
     docker pull "$COSMOS_DIGEST"
     BUILD_ARGS+=(--build-arg "COSMOS_IMAGE=$COSMOS_DIGEST")
   fi
-  docker build -f "docker/$backend.Dockerfile" "${BUILD_ARGS[@]}" -t "image-lab/$backend:0.1.0" .
-  docker image inspect "image-lab/$backend:0.1.0" --format '{{json .}}' > "$DATA_ROOT/diagnostics/image-$backend.json"
-  docker run --rm --entrypoint python3 "image-lab/$backend:0.1.0" -m pip freeze > "$DATA_ROOT/diagnostics/requirements-$backend.txt"
-  BUILT_BACKENDS+=("$backend")
-  BUILT="$BUILT$backend,"
-done
+  docker build -f "docker/$backend.Dockerfile" ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} -t "$worker_image" .
+  docker image inspect "$worker_image" --format '{{json .}}' > "$DATA_ROOT/diagnostics/image-$backend.json"
+  docker run --rm --entrypoint python3 "$worker_image" -m pip freeze > "$DATA_ROOT/diagnostics/requirements-$backend.txt"
+  BUILT_IMAGES+=("$worker_image")
+done <<< "$BUILD_PLAN"
 # Finish downloads/builds before taking the GPU node away from its previous workloads.
 # Stop the old controller first so it cannot schedule a fresh worker during cleanup.
 ./stop.sh
@@ -111,8 +129,8 @@ if [[ "$CLEAN_GPU" == 1 ]]; then
 else
   python3 scripts/gpu_cleanup.py --check
 fi
-for backend in "${BUILT_BACKENDS[@]}"; do
-  docker run --rm --gpus all --entrypoint python3 "image-lab/$backend:0.1.0" -c \
+for worker_image in "${BUILT_IMAGES[@]}"; do
+  docker run --rm --gpus all --entrypoint python3 "$worker_image" -c \
     'import torch; assert torch.cuda.device_count() == 8; print("CUDA kernel check:", [torch.ones(1, device=f"cuda:{i}").sum().item() for i in range(8)])'
 done
 # Catch a launcher that restarted a workload while CUDA checks were running.

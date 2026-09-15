@@ -49,6 +49,166 @@
     "defaults": {"steps": 8, "bot_task": "think_recaption"}, "parameters": ["steps", "bot_task"],
     "license": "Tencent Hunyuan Community License; geographic and scale restrictions apply"
   },
+  "cosmos-4step": {
+    "name": "Cosmos3-Super-Text2Image-4Step",
+    "aliases": [
+      "cosmos4step",
+      "cosmos-distil"
+    ],
+    "backend": "cosmos",
+    "image": "image-lab/cosmos:0.1.0",
+    "gpus": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "repo": "nvidia/Cosmos3-Super-Text2Image-4Step",
+    "revision": "aa0d5a57b7b045d68daa60fbacd84ec723c7cb7b",
+    "code_revision": "vllm/vllm-omni@sha256:6d2630c7d637b699557573f2c3fee8df5d4d0cd718977aa22549ed6a6ef30587",
+    "dtype": "bfloat16",
+    "tasks": [
+      "text-to-image"
+    ],
+    "max_images": 0,
+    "multiple": 16,
+    "defaults": {
+      "steps": 4,
+      "guidance": 1.0,
+      "prompt_mode": "text"
+    },
+    "parameters": [
+      "steps",
+      "guidance",
+      "prompt_mode"
+    ],
+    "license": "OpenMDW-1.1",
+    "auxiliary": [
+      {
+        "repo": "nvidia/Cosmos-1.0-Guardrail",
+        "revision": "cf03c0395fac8c4de386c0bdab12cc4fc8d66362",
+        "patterns": [
+          "blocklist/*",
+          "face_blur_filter/Resnet50_Final.pth"
+        ],
+        "probe": "face_blur_filter/Resnet50_Final.pth"
+      },
+      {
+        "repo": "Qwen/Qwen3Guard-Gen-0.6B",
+        "revision": "fada3b2f655b89601929198343c94cd2f64d93cc",
+        "patterns": null,
+        "probe": "model.safetensors"
+      }
+    ],
+    "fixed_parameters": {
+      "steps": 4,
+      "guidance": 1.0
+    },
+    "distilled": true
+  },
+  "flux-turbo": {
+    "name": "FLUX.2-dev-Turbo",
+    "aliases": [
+      "flux2-turbo",
+      "fal/FLUX.2-dev-Turbo"
+    ],
+    "backend": "flux",
+    "image": "image-lab/flux:0.1.0",
+    "gpus": [
+      0
+    ],
+    "repo": "fal/FLUX.2-dev-Turbo",
+    "revision": "9ee51cd87578162cf8d02355a870bc5f4570045c",
+    "code_revision": "diffusers@759164b7ad116e091e9d3e222211c9aa27d835f6",
+    "dtype": "bfloat16",
+    "tasks": [
+      "text-to-image",
+      "image-edit"
+    ],
+    "max_images": 8,
+    "multiple": 16,
+    "defaults": {
+      "steps": 8,
+      "guidance": 2.5
+    },
+    "parameters": [
+      "steps",
+      "guidance"
+    ],
+    "license": "FLUX.2-dev Non-Commercial License; commercial deployment requires BFL authorization",
+    "base_model": "flux",
+    "allow_patterns": [
+      "flux.2-turbo-lora.safetensors",
+      "README.md",
+      "LICENSE*"
+    ],
+    "lora_weight": "flux.2-turbo-lora.safetensors",
+    "fixed_parameters": {
+      "steps": 8,
+      "guidance": 2.5
+    },
+    "distilled": true
+  },
+  "ideogram-instant": {
+    "name": "Ideogram 4 Instant",
+    "aliases": [
+      "ideogram4-instant",
+      "ideogram-v4-instant",
+      "fal/ideogram-v4-instant"
+    ],
+    "backend": "ideogram-instant",
+    "image": "image-lab/ideogram-instant:0.1.0",
+    "gpus": [
+      0
+    ],
+    "repo": "fal/ideogram-v4-instant",
+    "revision": "d47b425d7ee14f5add208adeab68e7dbfc18cf51",
+    "code_revision": "diffusers@v0.39.0; ideogram4@990fe1c4e950bb9e9dc90e01c0ad98ba434f83c2",
+    "dtype": "bfloat16 (pre-QAD)",
+    "tasks": [
+      "text-to-image"
+    ],
+    "max_images": 0,
+    "multiple": 16,
+    "defaults": {
+      "steps": 8,
+      "guidance": 1.0,
+      "prompt_mode": "template"
+    },
+    "parameters": [
+      "steps",
+      "guidance",
+      "prompt_mode"
+    ],
+    "license": "Ideogram Non-Commercial Model Agreement; separate authorization required for commercial deployment",
+    "allow_patterns": [
+      "transformer/*",
+      "README.md",
+      "LICENSE.md",
+      "NOTICE"
+    ],
+    "fixed_parameters": {
+      "steps": 8,
+      "guidance": 1.0
+    },
+    "distilled": true,
+    "auxiliary": [
+      {
+        "role": "components",
+        "repo": "ideogram-ai/ideogram-4-nf4-diffusers",
+        "revision": "1874bc70267ba2c823a7239e1d70dd308c8d64dc",
+        "patterns": [
+          "model_index.json",
+          "scheduler/*",
+          "text_encoder/*",
+          "tokenizer/*",
+          "vae/*",
+          "LICENSE.md"
+        ],
+        "probe": "text_encoder/model.safetensors"
+      }
+    ]
+  },
   "mage": {
     "name": "Mage-Flow-Edit", "aliases": ["mage-flow-edit", "mage-edit"],
     "backend": "mage", "image": "image-lab/mage:0.1.0", "gpus": [0],
