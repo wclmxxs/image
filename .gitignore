@@ -1,4 +1,5 @@
 .env
+.hf-token.env
 .venv/
 __pycache__/
 *.py[cod]

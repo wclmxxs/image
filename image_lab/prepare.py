@@ -32,7 +32,7 @@ def verify_auth(api, token):
         status = getattr(error.response, "status_code", None)
         if status in {401, 403}:
             raise RuntimeError(
-                "HF_TOKEN was rejected by Hugging Face. Check whether it is invalid, revoked, or restricted; replace it in .env or the invoking shell (or .hf-token.env if using the fallback). Token value is not logged."
+                "HF_TOKEN was rejected by Hugging Face. Check whether it is invalid, revoked, or restricted; use --ask-hf-token to enter a fresh token, or replace it in .env or the invoking shell. Token value is not logged."
             ) from None
         raise RuntimeError(
             f"Could not verify HF_TOKEN (HTTP {status}); check Hugging Face connectivity and retry."

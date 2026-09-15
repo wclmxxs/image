@@ -5,6 +5,7 @@ MODELS=cosmos,flux,ideogram,hunyuan,hunyuan-distil
 INSTALL_RUNTIME=0
 CHECK_ONLY=0
 CHECK_ACCESS_ONLY=0
+ASK_HF_TOKEN=0
 CLEAN_GPU=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -13,9 +14,10 @@ while [[ $# -gt 0 ]]; do
     --install-runtime) INSTALL_RUNTIME=1; shift ;;
     --check) CHECK_ONLY=1; shift ;;
     --check-access) CHECK_ACCESS_ONLY=1; shift ;;
+    --ask-hf-token) ASK_HF_TOKEN=1; shift ;;
     --no-gpu-cleanup) CLEAN_GPU=0; shift ;;
     --help|-h)
-      echo 'Usage: ./start.sh [--profile aws-8xh200] [--models cosmos,flux,ideogram,hunyuan,hunyuan-distil,mage] [--install-runtime] [--check | --check-access] [--no-gpu-cleanup]'
+      echo 'Usage: ./start.sh [--profile aws-8xh200] [--models cosmos,flux,ideogram,hunyuan,hunyuan-distil,mage] [--install-runtime] [--check | --check-access] [--ask-hf-token] [--no-gpu-cleanup]'
       exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
@@ -23,6 +25,16 @@ done
 [[ "$PROFILE" == aws-8xh200 ]] || { echo "Unsupported profile: $PROFILE" >&2; exit 2; }
 [[ "$CHECK_ONLY" == 0 || "$CHECK_ACCESS_ONLY" == 0 ]] || { echo 'Choose either --check or --check-access.' >&2; exit 2; }
 source "$(dirname "$0")/scripts/env.sh"
+if [[ "$ASK_HF_TOKEN" == 1 ]]; then
+  [[ -t 0 ]] || { echo '--ask-hf-token requires an interactive terminal.' >&2; exit 2; }
+  if ! IFS= read -r -s -p 'Hugging Face read token (hidden): ' HF_TOKEN; then
+    printf '\nToken input cancelled.\n' >&2
+    exit 2
+  fi
+  printf '\n' >&2
+  [[ -n "$HF_TOKEN" ]] || { echo 'Token must not be empty.' >&2; exit 2; }
+  export HF_TOKEN
+fi
 if [[ "$CHECK_ACCESS_ONLY" == 1 ]]; then
   [[ "$INSTALL_RUNTIME" == 0 ]] || { echo '--check-access cannot install the runtime.' >&2; exit 2; }
   bash scripts/preflight.sh --access-only

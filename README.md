@@ -25,18 +25,22 @@
 
 **启动默认接管整台机器的 8 张 GPU：会停止已有 GPU 任务。** 权重下载和镜像构建完成后才执行清理，随后检查 CUDA 并启动 API。只想检查时用 `--check`；要保留其他任务时用 `--no-gpu-cleanup`，GPU 忙碌会直接退出。
 
-**临时凭据状态：** 本次公开提交的 `.hf-token.env` 已被 Hugging Face 标记为 `Invalidated`，接口返回 HTTP 401；它不能用于下载。必须配置新的、未公开的账号 Token 才能启动受限模型。
+推荐在启动时隐藏输入 Hugging Face 读取 Token：
 
-启动读取优先级为调用 shell 的非空 `HF_TOKEN` → `.env` 的非空 `HF_TOKEN` → `.hf-token.env`。因此，在 `.env` 中提供有效 Token 即可覆盖失效的临时值。`.hf-token.env` 从 Docker 构建上下文排除。
+```bash
+git pull --ff-only && ./start.sh --ask-hf-token
+```
+
+出现 `Hugging Face read token (hidden):` 后粘贴 Token 并回车；输入不回显、不进入 shell 历史，也不保存到 `.env` 或代码，只用于本次启动。它会覆盖已有环境变量／`.env` 中的旧 Token。旧 `.hf-token.env` 已移除且不再读取；之前公开过的 Token 已失效，需要使用新的 Token。
 
 自行配置账号或更换凭据时：
 
 1. 用同一个 Hugging Face 账号取得 [FLUX.2-dev](https://huggingface.co/black-forest-labs/FLUX.2-dev)、[Ideogram 4 FP8](https://huggingface.co/ideogram-ai/ideogram-4-fp8)、[Cosmos Guardrail](https://huggingface.co/nvidia/Cosmos-1.0-Guardrail) 的访问权。需要审批的仓库须等待批准，再从该账号的 [Token 设置](https://huggingface.co/settings/tokens) 创建读取 Token；如果使用 fine-grained Token，还需允许读取账号有权访问的 public gated repositories。
-2. 首次执行 `cp config/env.example .env`，编辑 `HF_TOKEN` 和 `DATA_ROOT`；已有 `.env` 时直接编辑，避免覆盖配置。推荐把数据目录设成已挂载的数据盘目录，例如 `/mnt/nvme/image-lab`。`API_KEY` 留空时由脚本生成并保存在 `.env`，不会打印。
+2. 首次启动会自动创建 `.env`；需要修改数据目录时可先执行 `cp config/env.example .env` 并编辑 `DATA_ROOT`，已有 `.env` 时直接编辑，避免覆盖配置。推荐把数据目录设成已挂载的数据盘目录，例如 `/mnt/nvme/image-lab`。`API_KEY` 留空时由脚本生成并保存在 `.env`，不会打印。Token 可以通过 `--ask-hf-token` 在启动时输入，也可自行设置 `.env` 中的 `HF_TOKEN`。
 3. 在 AWS 上进入仓库，执行：
 
 ```bash
-./start.sh --profile aws-8xh200
+./start.sh --profile aws-8xh200 --ask-hf-token
 ```
 
 `install.sh` 是同一入口的别名。首次启动会检查机器和全部所选权重的访问权限，然后下载、构建镜像和启动 API；耗时取决于网络、存储和编译。模型在首次请求时加载。
@@ -46,6 +50,7 @@
 ```bash
 ./start.sh --models flux,hunyuan-distil   # 只准备部分模型
 ./start.sh --check-access               # 只检查下载权限，不查询／停止 GPU 任务
+./start.sh --check-access --ask-hf-token # 隐藏输入 Token 后，只检查下载权限
 ./start.sh --models ideogram --check     # 主机／访问权预检，不下载大权重、不启动服务
 ./start.sh --no-gpu-cleanup              # 不清理其他任务；GPU 被占用时拒绝启动
 ./status.sh
