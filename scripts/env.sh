@@ -7,9 +7,15 @@ if [[ ! -f .env ]]; then
   umask 077
   cp config/env.example .env
 fi
+IMAGE_LAB_INCOMING_HF_TOKEN="${HF_TOKEN:-}"
 set -a
 source .env
 set +a
+if [[ -n "$IMAGE_LAB_INCOMING_HF_TOKEN" ]]; then
+  export HF_TOKEN="$IMAGE_LAB_INCOMING_HF_TOKEN"
+fi
+unset IMAGE_LAB_INCOMING_HF_TOKEN
+export HF_TOKEN="${HF_TOKEN:-}"
 export DATA_ROOT="${DATA_ROOT:-/opt/image-lab/data}"
 export PORT="${PORT:-18080}"
 export BIND_HOST="${BIND_HOST:-127.0.0.1}"

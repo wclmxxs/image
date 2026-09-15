@@ -27,8 +27,8 @@
 
 首次使用需要完成一次下载授权并填写配置：
 
-1. 用同一个 Hugging Face 账号取得 [FLUX.2-dev](https://huggingface.co/black-forest-labs/FLUX.2-dev)、[Ideogram 4 FP8](https://huggingface.co/ideogram-ai/ideogram-4-fp8)、[Cosmos Guardrail](https://huggingface.co/nvidia/Cosmos-1.0-Guardrail) 的访问权。
-2. 执行 `cp config/env.example .env`，编辑 `HF_TOKEN` 和 `DATA_ROOT`。推荐把后者设成已挂载的数据盘目录，例如 `/mnt/nvme/image-lab`。`API_KEY` 留空时由脚本生成并保存在 `.env`，不会打印。
+1. 用同一个 Hugging Face 账号取得 [FLUX.2-dev](https://huggingface.co/black-forest-labs/FLUX.2-dev)、[Ideogram 4 FP8](https://huggingface.co/ideogram-ai/ideogram-4-fp8)、[Cosmos Guardrail](https://huggingface.co/nvidia/Cosmos-1.0-Guardrail) 的访问权。需要审批的仓库须等待批准，再从该账号的 [Token 设置](https://huggingface.co/settings/tokens) 创建读取 Token；如果使用 fine-grained Token，还需允许读取账号有权访问的 public gated repositories。
+2. 首次执行 `cp config/env.example .env`，编辑 `HF_TOKEN` 和 `DATA_ROOT`；已有 `.env` 时直接编辑，避免覆盖配置。推荐把数据目录设成已挂载的数据盘目录，例如 `/mnt/nvme/image-lab`。`API_KEY` 留空时由脚本生成并保存在 `.env`，不会打印。
 3. 在 AWS 上进入仓库，执行：
 
 ```bash
@@ -41,6 +41,7 @@
 
 ```bash
 ./start.sh --models flux,hunyuan-distil   # 只准备部分模型
+./start.sh --check-access               # 只检查下载权限，不查询／停止 GPU 任务
 ./start.sh --models ideogram --check     # 主机／访问权预检，不下载大权重、不启动服务
 ./start.sh --no-gpu-cleanup              # 不清理其他任务；GPU 被占用时拒绝启动
 ./status.sh
@@ -48,6 +49,12 @@
 ```
 
 `--models` 选择本次准备和构建的模型，其他已缓存模型仍保留。重跑启动会重建 API，当前运行任务标为 `interrupted`，排队任务恢复。停止只清理本部署的容器，保留权重与结果。
+
+遇到 `401/403` 或 `GatedRepoError`，先执行 `./start.sh --check-access`。此命令准备配置／数据目录、构建 CPU 下载助手镜像并验证未缓存权重的下载权限，不下载模型大权重，也不检查或清理 GPU。输出区分缺少 Token、Token 被拒绝和仓库权限不足，并显示当前认证用户名及需要申请访问的仓库链接。所有所选模型通过权限检查后，正常启动才开始下载权重。
+
+下载助手读取 `.env` 中的 `HF_TOKEN`，也支持 `export HF_TOKEN`；调用脚本的 shell 中非空 Token 优先于 `.env`，引号由 shell 正确解析。仅在宿主机执行 `hf auth login` 不会把凭据传入容器；通过 `sudo` 启动时建议把 Token 配在 `.env`，避免环境变量被过滤。不要把 Token 粘贴到日志或提交到仓库。已准备完整的本地缓存无需重新验证 Token。
+
+等待受限仓库批准期间，可以先运行 `./start.sh --models hunyuan,hunyuan-distil`，只准备两款公开的 Hunyuan 权重；正常启动仍会在下载和构建后执行前述 GPU 清理。
 
 GPU 清理会先记录 PID、容器、systemd 服务和显存占用：
 

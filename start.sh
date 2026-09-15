@@ -4,6 +4,7 @@ PROFILE=aws-8xh200
 MODELS=cosmos,flux,ideogram,hunyuan,hunyuan-distil
 INSTALL_RUNTIME=0
 CHECK_ONLY=0
+CHECK_ACCESS_ONLY=0
 CLEAN_GPU=1
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -11,20 +12,27 @@ while [[ $# -gt 0 ]]; do
     --models) MODELS="$2"; shift 2 ;;
     --install-runtime) INSTALL_RUNTIME=1; shift ;;
     --check) CHECK_ONLY=1; shift ;;
+    --check-access) CHECK_ACCESS_ONLY=1; shift ;;
     --no-gpu-cleanup) CLEAN_GPU=0; shift ;;
     --help|-h)
-      echo 'Usage: ./start.sh [--profile aws-8xh200] [--models cosmos,flux,ideogram,hunyuan,hunyuan-distil,mage] [--install-runtime] [--check] [--no-gpu-cleanup]'
+      echo 'Usage: ./start.sh [--profile aws-8xh200] [--models cosmos,flux,ideogram,hunyuan,hunyuan-distil,mage] [--install-runtime] [--check | --check-access] [--no-gpu-cleanup]'
       exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
 [[ "$PROFILE" == aws-8xh200 ]] || { echo "Unsupported profile: $PROFILE" >&2; exit 2; }
+[[ "$CHECK_ONLY" == 0 || "$CHECK_ACCESS_ONLY" == 0 ]] || { echo 'Choose either --check or --check-access.' >&2; exit 2; }
 source "$(dirname "$0")/scripts/env.sh"
-if [[ "$INSTALL_RUNTIME" == 1 ]]; then bash scripts/install-runtime.sh; fi
-bash scripts/preflight.sh
-exec 9>"$DATA_ROOT/.start.lock"
-flock -n 9 || { echo 'Another start.sh is running.' >&2; exit 1; }
-mkdir -p "$DATA_ROOT/diagnostics"
+if [[ "$CHECK_ACCESS_ONLY" == 1 ]]; then
+  [[ "$INSTALL_RUNTIME" == 0 ]] || { echo '--check-access cannot install the runtime.' >&2; exit 2; }
+  bash scripts/preflight.sh --access-only
+else
+  if [[ "$INSTALL_RUNTIME" == 1 ]]; then bash scripts/install-runtime.sh; fi
+  bash scripts/preflight.sh
+  exec 9>"$DATA_ROOT/.start.lock"
+  flock -n 9 || { echo 'Another start.sh is running.' >&2; exit 1; }
+  mkdir -p "$DATA_ROOT/diagnostics"
+fi
 export REQUESTED_MODELS="$MODELS"
 MODELS="$(python3 - <<'PY'
 import json,os
@@ -37,12 +45,16 @@ except KeyError as error:
 PY
 )"
 docker build -f docker/controller.Dockerfile -t image-lab/controller:0.1.0 .
-PREPARE_ARGS=(--rm --env-file .env -e "DATA_ROOT=$DATA_ROOT" -e "API_KEY=$API_KEY" -e "MAGE_LOCAL_PATH=${MAGE_LOCAL_PATH:-}" -v "$DATA_ROOT:$DATA_ROOT" -v "$REPO_DIR/config:/app/config:ro")
+PREPARE_ARGS=(--rm --env-file .env -e HF_TOKEN -e "DATA_ROOT=$DATA_ROOT" -e "API_KEY=$API_KEY" -e "MAGE_LOCAL_PATH=${MAGE_LOCAL_PATH:-}" -v "$DATA_ROOT:$DATA_ROOT" -v "$REPO_DIR/config:/app/config:ro")
 if [[ -n "${MAGE_LOCAL_PATH:-}" ]]; then
   [[ "$MAGE_LOCAL_PATH" == /* && -d "$MAGE_LOCAL_PATH" ]] || { echo 'MAGE_LOCAL_PATH must be an existing absolute directory.' >&2; exit 1; }
   if [[ "$MAGE_LOCAL_PATH" != "$DATA_ROOT/"* ]]; then PREPARE_ARGS+=(-v "$MAGE_LOCAL_PATH:$MAGE_LOCAL_PATH:ro"); fi
 fi
 docker run "${PREPARE_ARGS[@]}" image-lab/controller:0.1.0 python -m image_lab.prepare --models "$MODELS" --check-only
+if [[ "$CHECK_ACCESS_ONLY" == 1 ]]; then
+  echo 'Weight access checks passed. No model weights downloaded; GPU workloads were not inspected or stopped.'
+  exit 0
+fi
 if [[ "$CHECK_ONLY" == 1 ]]; then
   python3 scripts/gpu_cleanup.py --check
   echo 'Host and weight-access checks passed. Models have not been loaded or benchmarked.'
