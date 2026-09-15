@@ -1,0 +1,10 @@
+{"model":"cosmos","prompt":"A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.","width":1024,"height":1024,"seed":42}
+{"model":"cosmos","prompt":"A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.","width":2048,"height":2048,"seed":42}
+{"model":"flux","prompt":"A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.","width":1024,"height":1024,"seed":42}
+{"model":"flux","prompt":"A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.","width":2048,"height":2048,"seed":42}
+{"model":"ideogram","prompt":"A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.","width":1024,"height":1024,"seed":42}
+{"model":"ideogram","prompt":"A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.","width":2048,"height":2048,"seed":42}
+{"model":"hunyuan","prompt":"A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.","width":1024,"height":1024,"seed":42}
+{"model":"hunyuan","prompt":"A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.","width":2048,"height":2048,"seed":42}
+{"model":"hunyuan-distil","prompt":"A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.","width":1024,"height":1024,"seed":42}
+{"model":"hunyuan-distil","prompt":"A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph.","width":2048,"height":2048,"seed":42}

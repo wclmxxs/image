@@ -1,0 +1,22 @@
+name: image-lab
+services:
+  api:
+    image: image-lab/controller:0.1.0
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      MODEL_REGISTRY: /app/config/models.json
+      DATA_ROOT: ${DATA_ROOT:?Set DATA_ROOT}
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${PORT:-18080}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_ROOT:?Set DATA_ROOT}:${DATA_ROOT:?Set DATA_ROOT}
+      - ./config/models.json:/app/config/models.json:ro
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6

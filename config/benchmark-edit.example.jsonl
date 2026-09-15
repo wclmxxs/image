@@ -1,0 +1,3 @@
+{"model":"flux","prompt":"Change the background to a snowy mountain, preserve the subject.","image_paths":["/absolute/path/reference.png"],"width":1024,"height":1024,"seed":42}
+{"model":"hunyuan-distil","prompt":"将背景换成雪山，保留主体的外观。","image_paths":["/absolute/path/reference.png"],"width":1024,"height":1024,"seed":42}
+{"model":"mage","prompt":"Change the background to a snowy mountain, preserve the subject.","image_paths":["/absolute/path/reference.png"],"width":1024,"height":1024,"seed":42}

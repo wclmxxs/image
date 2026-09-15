@@ -1,0 +1,62 @@
+{
+  "cosmos": {
+    "name": "Cosmos3-Super-Text2Image", "aliases": ["cosmos3", "cosmos3-super-text2image"],
+    "backend": "cosmos", "image": "image-lab/cosmos:0.1.0", "gpus": [0, 1, 2, 3],
+    "repo": "nvidia/Cosmos3-Super-Text2Image", "revision": "da579b9aa076ac8adb29f1a23703e54e2e5bd5fc",
+    "code_revision": "vllm/vllm-omni@sha256:6d2630c7d637b699557573f2c3fee8df5d4d0cd718977aa22549ed6a6ef30587",
+    "dtype": "bfloat16", "tasks": ["text-to-image"], "max_images": 0, "multiple": 16,
+    "defaults": {"steps": 50, "guidance": 4.0, "prompt_mode": "text"},
+    "parameters": ["steps", "guidance", "prompt_mode"], "license": "OpenMDW-1.1",
+    "auxiliary": [
+      {"repo": "nvidia/Cosmos-1.0-Guardrail", "revision": "cf03c0395fac8c4de386c0bdab12cc4fc8d66362", "patterns": ["blocklist/*", "face_blur_filter/Resnet50_Final.pth"], "probe": "face_blur_filter/Resnet50_Final.pth"},
+      {"repo": "Qwen/Qwen3Guard-Gen-0.6B", "revision": "fada3b2f655b89601929198343c94cd2f64d93cc", "patterns": null, "probe": "model.safetensors"}
+    ]
+  },
+  "flux": {
+    "name": "FLUX.2 dev", "aliases": ["flux2", "flux.2-dev", "flux.2 dev"],
+    "backend": "flux", "image": "image-lab/flux:0.1.0", "gpus": [0],
+    "repo": "black-forest-labs/FLUX.2-dev", "revision": "26afe3a78bb242c0a8bb181dcc8937bb16e5c66c",
+    "code_revision": "diffusers@759164b7ad116e091e9d3e222211c9aa27d835f6",
+    "dtype": "bfloat16", "tasks": ["text-to-image", "image-edit"], "max_images": 8, "multiple": 16,
+    "ignore_patterns": ["ae.safetensors", "flux2-dev.safetensors"],
+    "defaults": {"steps": 50, "guidance": 4.0}, "parameters": ["steps", "guidance"],
+    "license": "FLUX.2-dev Non-Commercial License; commercial deployment requires BFL authorization"
+  },
+  "ideogram": {
+    "name": "Ideogram 4", "aliases": ["ideogram4", "ideogram-4"],
+    "backend": "ideogram", "image": "image-lab/ideogram:0.1.0", "gpus": [0],
+    "repo": "ideogram-ai/ideogram-4-fp8", "revision": "ee79a7237b519f1402ceacf952f30c8a31ec5073",
+    "code_revision": "ideogram4@990fe1c4e950bb9e9dc90e01c0ad98ba434f83c2",
+    "dtype": "official FP8 weights / bfloat16 compute", "tasks": ["text-to-image"], "max_images": 0, "multiple": 16,
+    "defaults": {"preset": "V4_QUALITY_48", "prompt_mode": "template"},
+    "parameters": ["preset", "prompt_mode"], "license": "Ideogram 4 model license; accept model gate and review commercial terms"
+  },
+  "hunyuan": {
+    "name": "HunyuanImage-3.0", "aliases": ["hunyuanimage-3.0", "hunyuan-base"],
+    "backend": "hunyuan", "image": "image-lab/hunyuan:0.1.0", "gpus": [0, 1, 2, 3],
+    "repo": "tencent/HunyuanImage-3.0", "revision": "36f21fe74b65614451cc50ffd8a35a5f662dac70",
+    "code_revision": "HunyuanImage-3.0@6e9113a692a27a0751d82aba3b2015a876646c03",
+    "dtype": "upstream auto (BF16 model)", "tasks": ["text-to-image"], "max_images": 0, "multiple": 16,
+    "defaults": {"steps": 50, "bot_task": "image"}, "parameters": ["steps"],
+    "license": "Tencent Hunyuan Community License; geographic and scale restrictions apply"
+  },
+  "hunyuan-distil": {
+    "name": "HunyuanImage-3.0-Instruct-Distil", "aliases": ["hunyuanimage-3.0-instruct-distil", "distil"],
+    "backend": "hunyuan", "image": "image-lab/hunyuan:0.1.0", "gpus": [0, 1, 2, 3, 4, 5, 6, 7],
+    "repo": "tencent/HunyuanImage-3.0-Instruct-Distil", "revision": "c8ffd07206f1b843697606968196e8f59f8ff38c",
+    "code_revision": "HunyuanImage-3.0@6e9113a692a27a0751d82aba3b2015a876646c03",
+    "dtype": "upstream auto (BF16 model)", "tasks": ["text-to-image", "image-edit"], "max_images": 3, "multiple": 16,
+    "defaults": {"steps": 8, "bot_task": "think_recaption"}, "parameters": ["steps", "bot_task"],
+    "license": "Tencent Hunyuan Community License; geographic and scale restrictions apply"
+  },
+  "mage": {
+    "name": "Mage-Flow-Edit", "aliases": ["mage-flow-edit", "mage-edit"],
+    "backend": "mage", "image": "image-lab/mage:0.1.0", "gpus": [0],
+    "repo": "microsoft/Mage-Flow-Edit", "revision": null,
+    "code_revision": "Mage@76bec2bb3818863f470de7e867c2dc7f1d0bfd83",
+    "dtype": "upstream default", "tasks": ["image-edit"], "max_images": 3, "multiple": 16,
+    "defaults": {"steps": 30, "guidance": 5.0}, "parameters": ["steps", "guidance"],
+    "blocked_reason": "Official code is published, but downloadable Edit weights/revision are unverified. Set MAGE_LOCAL_PATH to an authorized complete local snapshot.",
+    "license": "Code MIT; weight license must be verified with the obtained checkpoint"
+  }
+}
