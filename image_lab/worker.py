@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from image_lab.common import atomic_json, read_json, safe_error
+from image_lab.timing import StageTimer, instrument_backend, synchronize_cuda
 
 
 def gpu_usage():
@@ -25,16 +26,32 @@ def gpu_usage():
 
 
 def synchronize():
-    import torch
-
-    for index in range(torch.cuda.device_count()):
-        torch.cuda.synchronize(index)
+    synchronize_cuda()
 
 
 def verify_image(image, job):
     expected = (job["width"], job["height"])
     if image.size != expected:
         raise ValueError(f"Backend returned {image.size}, requested {expected}. No resize was applied.")
+
+
+def generate_with_timings(backend, model, job):
+    import torch
+
+    timer = StageTimer(job.get("profiling", "stages"))
+    profiling_start = time.monotonic()
+    with instrument_backend(timer, backend, model["backend"]):
+        with timer.operators(supported=model["backend"] != "cosmos"):
+            synchronize()
+            start = time.monotonic()
+            with torch.inference_mode():
+                image, details = backend.generate(job)
+            synchronize()
+            generation_seconds = time.monotonic() - start
+    diagnostics_seconds = time.monotonic() - profiling_start - generation_seconds
+    timings = timer.result(generation_seconds)
+    timings["output"] = {"profiling_setup_finalize_seconds": max(0.0, diagnostics_seconds)}
+    return image, details, generation_seconds, timings
 
 
 def main():
@@ -82,14 +99,18 @@ def main():
 
                 for index in range(torch.cuda.device_count()):
                     torch.cuda.reset_peak_memory_stats(index)
-                synchronize()
-                start = time.monotonic()
-                with torch.inference_mode():
-                    image, details = backend.generate(job)
-                synchronize()
-                generation_seconds = time.monotonic() - start
+                image, details, generation_seconds, timings = generate_with_timings(backend, model, job)
+                output_start = time.monotonic()
                 verify_image(image, job)
+                verify_seconds = time.monotonic() - output_start
+                output_start = time.monotonic()
                 image.save(output_dir / "image.png")
+                timings["output"].update(
+                    {
+                        "verify_seconds": verify_seconds,
+                        "png_save_seconds": time.monotonic() - output_start,
+                    }
+                )
                 prompt_seconds = details.get("prompt_seconds")
                 result = {
                     "model": model["name"],
@@ -103,6 +124,7 @@ def main():
                     "height": image.height,
                     "parameters": job["parameters"],
                     "generation_seconds": generation_seconds,
+                    "timings": timings,
                     "inference_seconds": generation_seconds - prompt_seconds
                     if prompt_seconds is not None
                     else None,

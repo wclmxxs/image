@@ -212,6 +212,7 @@ def test_caption_file_and_comparison_csv_through_api(client, tmp_path, monkeypat
     job = json.loads(output.with_suffix(".json").read_text())
     assert job["request"]["prompt"] == caption.read_text()
     assert job["request"]["parameters"]["steps"] == 8
+    assert job["request"]["profiling"] == "stages"
     cases = tmp_path / "cases.jsonl"
     cases.write_text(
         json.dumps({"model": "ideogram-instant", "prompt": "fox"})
@@ -233,6 +234,8 @@ def test_caption_file_and_comparison_csv_through_api(client, tmp_path, monkeypat
             "1",
             "--warmup",
             "0",
+            "--profiling",
+            "detailed",
         ],
     )
     assert client_module.main() == 0
@@ -240,3 +243,6 @@ def test_caption_file_and_comparison_csv_through_api(client, tmp_path, monkeypat
         rows = {row["model"]: row for row in csv.DictReader(stream)}
     assert json.loads(rows["ideogram-instant"]["parameters"])["steps"] == 8
     assert json.loads(rows["ideogram"]["parameters"])["preset"] == "V4_TURBO_12"
+    assert all(row["profiling"] == "detailed" for row in rows.values())
+    for line in (report / "results.jsonl").read_text().splitlines():
+        assert json.loads(line)["job"]["request"]["profiling"] == "detailed"

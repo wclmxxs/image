@@ -105,13 +105,34 @@ def main():
     generate.add_argument("--image", action="append", default=[])
     generate.add_argument("--parameters", default="{}", help="JSON object, for example '{\"steps\": 8}'")
     generate.add_argument("--output", default="results/image.png")
+    generate.add_argument("--profiling", choices=("off", "stages", "detailed"), default="stages")
     bench = sub.add_parser("benchmark")
     bench.add_argument("--cases", default="config/benchmark.jsonl")
     bench.add_argument("--models", help="Optional comma-separated canonical model IDs to select")
     bench.add_argument("--repeat", type=int, default=3)
     bench.add_argument("--warmup", type=int, default=1)
     bench.add_argument("--output", default=None)
+    bench.add_argument(
+        "--profiling",
+        choices=("off", "stages", "detailed"),
+        help="Override profiling for every case (otherwise case value or stages)",
+    )
+    analyze_parser = sub.add_parser("analyze-timings", help="Compare warm 1K/2K stages from a benchmark")
+    analyze_parser.add_argument("path", type=Path, help="Benchmark directory or results.jsonl")
+    analyze_parser.add_argument("--output", type=Path, help="Optional JSON report path")
     args = parser.parse_args()
+    if args.command == "analyze-timings":
+        if __package__:
+            from .analyze_timings import analyze, print_analysis
+        else:
+            from analyze_timings import analyze, print_analysis
+
+        report = analyze(args.path)
+        print_analysis(report)
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report["groups"] else 1
     key = os.environ.get("API_KEY")
     if not key:
         raise ValueError("Set API_KEY, or use ./lab on the deployment host")
@@ -132,6 +153,7 @@ def main():
                 "seed": args.seed,
                 "image_paths": args.image,
                 "parameters": json.loads(args.parameters),
+                "profiling": args.profiling,
             },
             args.output,
         )
@@ -156,6 +178,8 @@ def main():
             "width",
             "height",
             "parameters",
+            "profiling",
+            "timings",
             "iteration",
             "warmup",
             "status",
@@ -176,6 +200,8 @@ def main():
             for index, case in enumerate(cases):
                 for iteration in range(args.warmup + args.repeat):
                     payload = {**case, "seed": case.get("seed", 42) + iteration}
+                    if args.profiling:
+                        payload["profiling"] = args.profiling
                     row = {
                         "case": index,
                         "model": case["model"],
@@ -184,6 +210,7 @@ def main():
                         "iteration": iteration,
                         "warmup": iteration < args.warmup,
                         "parameters": json.dumps(case.get("parameters", {}), sort_keys=True),
+                        "profiling": payload.get("profiling", "stages"),
                     }
                     try:
                         job = client.generate(payload, root / f"case-{index}-{iteration}.png")
@@ -193,6 +220,7 @@ def main():
                             queue_seconds=job.get("queue_seconds"),
                             client_seconds=job["client_seconds"],
                             parameters=json.dumps(job["request"]["parameters"], sort_keys=True),
+                            timings=json.dumps(job.get("result", {}).get("timings"), ensure_ascii=False),
                         )
                         row.update({k: job.get("load", {}).get(k) for k in ("cold_start", "load_seconds")})
                         row.update(

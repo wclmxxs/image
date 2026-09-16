@@ -7,6 +7,7 @@ import time
 import uuid
 import warnings
 from contextlib import asynccontextmanager
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -33,6 +34,7 @@ class GenerationRequest(BaseModel):
     seed: int | None = None
     response_format: str = "b64_json"
     parameters: dict = Field(default_factory=dict)
+    profiling: Literal["off", "stages", "detailed"] = "stages"
 
 
 def create_app(settings=None, runtime_factory=DockerRuntime):
@@ -169,6 +171,7 @@ def create_app(settings=None, runtime_factory=DockerRuntime):
             "width": width,
             "height": height,
             "parameters": request.parameters,
+            "profiling": request.profiling,
         }
         if request.seed is not None:
             fields["seed"] = request.seed
@@ -189,7 +192,13 @@ def create_app(settings=None, runtime_factory=DockerRuntime):
                 if request.response_format == "b64_json":
                     image = (settings.root / "jobs" / job["id"] / "image.png").read_bytes()
                     output = {"b64_json": base64.b64encode(image).decode()}
-                return {"created": int(time.time()), "data": [output], "job_id": job["id"]}
+                return {
+                    "created": int(time.time()),
+                    "data": [output],
+                    "job_id": job["id"],
+                    "generation_seconds": current["result"].get("generation_seconds"),
+                    "timings": current["result"].get("timings"),
+                }
             await asyncio.sleep(0.25)
         # Cold starts are long: preserve the job and provide an explicit polling handle.
         from fastapi.responses import JSONResponse

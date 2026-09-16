@@ -2,7 +2,7 @@
 
 在一台 8×H200 Linux 机器上，用模型名调用生图／编辑模型。提供统一 REST API、固定版本权重下载、独立 Docker 推理环境、串行队列和 1K／2K 测试工具。
 
-**交付状态：原版 Cosmos、FLUX、Ideogram 及两款 Hunyuan 已在 AWS H200 完成 1K 出图测试；新增三个蒸馏版本已通过 CPU 适配测试，待部署后验证实际出图与速度。** 2K 仍有模型／运行时限制，不能视为全部通过。Mage 未核实到可下载的 Edit 权重，默认准备其余八个模型。
+**交付状态：原版 Cosmos、FLUX、Ideogram 及两款 Hunyuan 已在 AWS H200 完成 1K 出图测试；FLUX Turbo 和 Ideogram Instant 已完成 1K／2K 出图测试。Cosmos 4Step 的 1K 存在脸部打码，2K 三张测试均出现重复平铺，不能视为画质通过。** 新增分阶段打点已通过 CPU 测试，仍需重建后验证 H200 实际计时。Mage 未核实到可下载的 Edit 权重，默认准备其余八个模型。
 
 ## 支持的模型
 
@@ -158,7 +158,7 @@ GPU 清理会先记录 PID、容器、systemd 服务和显存占用：
 
 两个新批次使用同一红狐场景。原 Ideogram 与 Instant 使用同一份完整 [JSON 提示词](config/fox-caption.json)；其他模型使用同一句普通文本。CSV 记录实际合并后的 `parameters`，可区分原版 48／12 步与蒸馏 8 步，不能只按模型名汇总。相同 seed 不代表不同模型使用相同初始噪声。
 
-2026-09-15 的既有测试中，Hunyuan 两款拒绝 2048×2048；原 Cosmos 2K 返回上游错误。新版会保留 Cosmos 的具体错误正文供定位，未宣称修复其 2K 支持。新蒸馏版的 2K 效果与速度均待实测；Instant 发布者的推荐参数以 1024×1024 为基准。
+2026-09-15 的既有测试中，Hunyuan 两款拒绝 2048×2048；原 Cosmos 2K 返回上游错误。新版会保留 Cosmos 的具体错误正文供定位，未宣称修复其 2K 支持。新蒸馏版 FLUX Turbo 和 Ideogram Instant 的 2K 已有成功样例；Cosmos 4Step 返回的 2K PNG 存在重复平铺，不算合格结果。Instant 发布者的推荐参数以 1024×1024 为基准。
 
 原有测试入口仍可用：
 
@@ -184,6 +184,58 @@ GPU 清理会先记录 PID、容器、systemd 服务和显存占用：
 | `client_seconds` | 上传、排队、加载、生成到收到完成状态，不含最后下载 PNG |
 
 Cosmos 在 vLLM 子进程中执行，wrapper 的 PyTorch 峰值不能代表其显存；`nvidia-smi` 记录是完成后的快照，不是全程峰值。这里不提供未经 H200 实测的秒数。
+
+## 分阶段耗时与 1K／2K 分析
+
+请求新增顶层字段 `profiling`，默认 `stages`，无需更改原来的调用即可在完成结果中得到 `result.timings`。兼容入口 `/v1/images/generations` 直接返回 `timings`；超过 55 秒返回 202 时，继续读取任务结果即可。旧计时字段保持原有口径。
+
+| 模式 | 返回内容 |
+| --- | --- |
+| `stages`（默认） | CUDA 同步的阶段墙钟耗时、每次去噪网络调用耗时、调用次数、输入张量形状、耗时排序 |
+| `detailed` | 上述内容，加 PyTorch Profiler 的 CUDA 算子耗时及实际出现的注意力算子名称 |
+| `off` | 关闭内部打点，保留原来的总耗时与输出处理计时，用于基准速度测试 |
+
+阶段依运行时有所不同：FLUX／Turbo 和 Ideogram Instant 记录 `text_encode`、`latent_prepare`（若运行时有此入口）、`denoiser`、`scheduler_step`（若使用）、`vae_decode`、`image_postprocess` 等；原 Ideogram 分开记录正负去噪分支及解码；Hunyuan 分开记录原生 `reasoning_recaption`、`image_sampling`、图像生成 forward 和 VAE；Mage 在对应组件入口打点。开启的提示词扩写、审核也会记录。权重和采样配置不因打点改变。
+
+Cosmos 当前只记录 `upstream_request` 和 `upstream_image_decode`。前者包含 vLLM 子进程内的推理、Guardrail 与返回编码；当前封装无法独立测量这些内部阶段，`detailed` 会明确返回算子计时 `unavailable`，不会用父进程计时冒充子进程内核耗时。缺失的必需探针列在 `missing_probes`，不伪造 0 秒。
+
+```bash
+# 首先在服务器拉取并重建容器；缓存完整时不重新下载权重
+git pull --ff-only
+./start.sh
+
+# 单次调用，JSON 输出和旁边的 .json 文件都包含详细打点
+./lab generate --model flux-turbo --prompt "A red fox sitting beside a ceramic cup on a wooden table, soft morning light, detailed photograph." \
+  --width 2048 --height 2048 --profiling detailed --output results/flux-2k-profile.png
+
+# 同一提示词、同一步数对比两款蒸馏模型的 1K 与 2K：每组预热 1 次、正式 2 次
+./lab benchmark --cases config/benchmark-profiling.jsonl --warmup 1 --repeat 2 --output results/profile-stages
+./lab analyze-timings results/profile-stages --output results/profile-stages/analysis.json
+
+# 需要算子细节时单独跑一组，避免与 stages 模式混算
+./lab benchmark --cases config/benchmark-profiling.jsonl --profiling detailed --warmup 1 --repeat 2 --output results/profile-detailed
+./lab analyze-timings results/profile-detailed --output results/profile-detailed/analysis.json
+```
+
+`timings` 的主要字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `phases.<阶段>.total_seconds` | 阶段累计墙钟时间，包含嵌套子阶段 |
+| `phases.<阶段>.self_seconds` | 扣除已记录子阶段后的累计时间，汇总时使用它，避免重复计时 |
+| `phases.<阶段>.per_call_seconds` | 每次调用的耗时；另外提供 `calls`、`mean_seconds`、`max_seconds` |
+| `denoiser_calls` | 按完成顺序记录 forward 的耗时及输入形状；CFG 有正负分支，调用数不能直接当作采样步数 |
+| `phase_ranking` | 按 `self_seconds` 排序及占生成总时间的比例，用于找主要耗时 |
+| `generation_unattributed_seconds` | 总生成耗时减去已覆盖的顶层阶段，包括未打点的准备、循环、张量转换与打点开销 |
+| `operator_profile` | 详细模式下的前 30 个 CUDA 算子与注意力算子，包括调用次数、CPU／CUDA self 时间和 CUDA inclusive 时间；作用域为整个后端调用 |
+| `output` | 图片尺寸验证、PNG 保存、Profiler 初始化和收集报告耗时，均在原 `generation_seconds` 之外 |
+| `request` | 排队、加载与服务总耗时；`service_seconds` 包含加载和生成，不能再把它们重复相加 |
+
+阶段耗时在边界同步所有本 worker 可见 CUDA 设备，避免仅测到 CPU 提交时间。该同步会增加开销，`detailed` 还会采集算子事件，因此分析结果用于定位瓶颈，不直接当成关闭打点时的极限性能。CUDA 算子时间可跨 GPU／stream 累加，不等于墙钟时间；父子算子的 `total_cuda_seconds` 会重叠，不能求和。矩阵乘法也包含投影等计算，不能全部归为 FFN。无法采集 CUDA／CUPTI 数据时返回 `cuda_unavailable` 或 `unavailable`，保留阶段计时。
+
+`analyze-timings` 只做本地分析，不调用 GPU，排除标记的预热、冷加载和失败请求；按模型、提示词、参数、参考图 ID 和打点模式分组，列出 1K→2K 各阶段多花的秒数和倍率。只比较两种分辨率所有样本都存在的阶段；API 成功不代表画质合格，仍需检查样图。批次 CSV 的 `timings` 列和原始 JSON 都保留完整数据。
+
+本地已进行 CPU 计时、接口和异常恢复测试；新增打点的 H200 数据需服务器重建后实测，不能从之前的总耗时反推出各阶段占比。
 
 ## 蒸馏版本与固定采样
 

@@ -37,13 +37,21 @@ class Scheduler:
                 result = self.runtime.generate(job, interrupted)
                 if interrupted():
                     raise Cancelled("Job cancelled")
+                service_seconds = time.monotonic() - began
+                queue_seconds = job["started_at"] - job["created_at"]
+                if "timings" in result:
+                    result["timings"]["request"] = {
+                        "queue_seconds": queue_seconds,
+                        "load_seconds": loading["load_seconds"],
+                        "service_seconds": service_seconds,
+                    }
                 self.store.update(
                     job["id"],
                     status="succeeded",
                     result=result,
                     finished_at=time.time(),
-                    queue_seconds=job["started_at"] - job["created_at"],
-                    service_seconds=time.monotonic() - began,
+                    queue_seconds=queue_seconds,
+                    service_seconds=service_seconds,
                     image_url=f"/v1/jobs/{job['id']}/image",
                 )
             except Exception as error:

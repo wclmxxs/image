@@ -13,6 +13,7 @@ from pathlib import Path
 from PIL import Image
 
 from image_lab.common import safe_error
+from image_lab.timing import timed_stage
 
 TURBO_SIGMAS = (1.0, 0.6509, 0.4374, 0.2932, 0.1893, 0.1108, 0.0495, 0.00031)
 
@@ -73,7 +74,8 @@ class FluxBackend:
         if self.turbo:
             kwargs["sigmas"] = list(TURBO_SIGMAS)
         if job["image_paths"]:
-            kwargs["image"] = [Image.open(p).convert("RGB") for p in job["image_paths"]]
+            with timed_stage(self, "reference_load"):
+                kwargs["image"] = [Image.open(p).convert("RGB") for p in job["image_paths"]]
         params = job["parameters"]
         image = self.pipe(
             prompt=job["prompt"],
@@ -177,8 +179,9 @@ class IdeogramBackend:
         if text_key:
             from ideogram4.safety import moderate_prompt
 
-            if moderate_prompt(prompt, text_key):
-                raise ValueError("Prompt rejected by configured Hive text moderation")
+            with timed_stage(self, "text_moderation"):
+                if moderate_prompt(prompt, text_key):
+                    raise ValueError("Prompt rejected by configured Hive text moderation")
         return prompt, prompt_seconds, text_key, visual_key
 
     def sample(self, job, prompt):
@@ -200,13 +203,16 @@ class IdeogramBackend:
         return images[0], {"steps": preset.num_steps}
 
     def generate(self, job):
-        prompt, prompt_seconds, text_key, visual_key = self.prepare_prompt(job)
+        with timed_stage(self, "prompt_prepare"):
+            prompt, prompt_seconds, text_key, visual_key = self.prepare_prompt(job)
         image, details = self.sample(job, prompt)
         if visual_key:
             from ideogram4.safety import moderate_image
 
-        if visual_key and moderate_image(image, visual_key):
-            raise ValueError("Output rejected by configured Hive visual moderation")
+        if visual_key:
+            with timed_stage(self, "image_moderation"):
+                if moderate_image(image, visual_key):
+                    raise ValueError("Output rejected by configured Hive visual moderation")
         return image, {
             "effective_prompt": prompt,
             "prompt_mode": job["parameters"]["prompt_mode"],
@@ -354,14 +360,16 @@ class CosmosBackend:
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=7200) as response:
-                data = json.load(response)
+            with timed_stage(self, "upstream_request"):
+                with urllib.request.urlopen(request, timeout=7200) as response:
+                    data = json.load(response)
         except urllib.error.HTTPError as error:
             body = error.read(8192).decode(errors="replace")
             raise RuntimeError(f"Cosmos upstream HTTP {error.code}: {safe_error(body)}") from None
-        image = Image.open(io.BytesIO(base64.b64decode(data["data"][0]["b64_json"], validate=True))).convert(
-            "RGB"
-        )
+        with timed_stage(self, "upstream_image_decode"):
+            image = Image.open(
+                io.BytesIO(base64.b64decode(data["data"][0]["b64_json"], validate=True))
+            ).convert("RGB")
         return image, {
             "effective_prompt": prompt,
             "prompt_mode": params["prompt_mode"],

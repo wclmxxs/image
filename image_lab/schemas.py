@@ -1,5 +1,6 @@
 import math
 import secrets
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -13,6 +14,7 @@ class JobRequest(BaseModel):
     seed: int = Field(default_factory=lambda: secrets.randbelow(2**31), ge=0, lt=2**31)
     images: list[str] = Field(default_factory=list, max_length=8)
     parameters: dict = Field(default_factory=dict)
+    profiling: Literal["off", "stages", "detailed"] = "stages"
 
     @field_validator("prompt")
     @classmethod
