@@ -232,7 +232,10 @@ def install_probes(timer, backend, backend_name):
         for method, name in (("encode_prompt", "text_encode"), ("prepare_latents", "latent_prepare")):
             timer.wrap(pipe, method, name, required=method == "encode_prompt")
         timer.wrap(pipe, "prepare_image_latents", "reference_encode", required=False)
-        timer.wrap(pipe.transformer, "forward", "denoiser")
+        fast = getattr(backend, "fast", None)
+        timer.wrap(fast if fast is not None else pipe.transformer, "forward", "denoiser")
+        if fast is not None:
+            timer.wrap(fast, "prepare_condition", "conditioning_prepare")
         timer.wrap(
             getattr(pipe, "unconditional_transformer", None),
             "forward",

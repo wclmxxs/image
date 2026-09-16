@@ -93,6 +93,27 @@ def test_off_does_not_inspect_components_or_synchronize():
     assert timer.result(2)["phase_ranking"] == []
 
 
+def test_fast_ideogram_profiles_actual_engine_instead_of_unused_reference_forward():
+    fast = SimpleNamespace(prepare_condition=lambda: None, forward=lambda **kwargs: "velocity")
+    backend = SimpleNamespace(
+        fast=fast,
+        pipe=SimpleNamespace(
+            transformer=SimpleNamespace(forward=lambda: pytest.fail("reference forward is not used")),
+            vae=SimpleNamespace(),
+            scheduler=SimpleNamespace(),
+        ),
+    )
+    timer = StageTimer(synchronize=lambda: None)
+    with instrument_backend(timer, backend, "ideogram-instant"):
+        fast.prepare_condition()
+        for _ in range(8):
+            assert fast.forward(hidden_states=SimpleNamespace(shape=(1, 16384, 128))) == "velocity"
+    result = timer.result(1)
+    assert result["phases"]["conditioning_prepare"]["calls"] == 1
+    assert result["phases"]["denoiser"]["calls"] == 8
+    assert result["denoiser_calls"][0]["input_shapes"]["hidden_states"] == [1, 16384, 128]
+
+
 def test_hunyuan_splits_reasoning_from_image_forwards_and_restores():
     class Model:
         def __init__(self):

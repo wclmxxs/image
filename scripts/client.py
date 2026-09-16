@@ -120,7 +120,22 @@ def main():
     analyze_parser = sub.add_parser("analyze-timings", help="Compare warm 1K/2K stages from a benchmark")
     analyze_parser.add_argument("path", type=Path, help="Benchmark directory or results.jsonl")
     analyze_parser.add_argument("--output", type=Path, help="Optional JSON report path")
+    latency_parser = sub.add_parser("analyze-latency", help="Compare warm latency against a P95 target")
+    latency_parser.add_argument("path", type=Path)
+    latency_parser.add_argument("--target-seconds", type=float, default=4.0)
+    latency_parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if args.command == "analyze-latency":
+        if __package__:
+            from .analyze_latency import analyze, print_analysis
+        else:
+            from analyze_latency import analyze, print_analysis
+        report = analyze(args.path, args.target_seconds)
+        print_analysis(report)
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0 if report["groups"] else 1
     if args.command == "analyze-timings":
         if __package__:
             from .analyze_timings import analyze, print_analysis

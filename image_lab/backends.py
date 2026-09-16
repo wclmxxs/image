@@ -259,10 +259,32 @@ class IdeogramInstantBackend(IdeogramBackend):
         )
         self.pipe.register_modules(unconditional_transformer=ZeroUnconditionalTransformer())
         self.pipe.to("cuda")
+        self.fast = None
+        if model.get("optimization_profile") == "ideogram-native-v1":
+            from image_lab.ideogram_fast import FastIdeogram
+
+            self.fast = FastIdeogram(self.pipe)
 
     def sample(self, job, prompt):
         import torch
 
+        if getattr(self, "fast", None) is not None:
+            image, optimization = self.fast.sample(
+                prompt,
+                width=job["width"],
+                height=job["height"],
+                seed=job["seed"],
+                compiled=job["parameters"]["compile"],
+                attention_backend={"flash": "_native_flash", "cudnn": "_native_cudnn"}[
+                    job["parameters"]["attention_backend"]
+                ],
+            )
+            return image, {
+                "steps": 8,
+                "sampling_schedule": "fal-instant-diffusers-0.39",
+                "optimization": optimization,
+                "runtime_note": "Public BF16 pre-QAD; optimized native sampling; GPU latency/quality pending",
+            }
         image = self.pipe(
             prompt,
             width=job["width"],

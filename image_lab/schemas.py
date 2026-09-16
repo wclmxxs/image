@@ -36,6 +36,8 @@ def validate_request(request, model):
     if unknown:
         raise ValueError(f"Unsupported parameters: {sorted(unknown)}")
     params = {**model["defaults"], **request.parameters}
+    if "compile" in params and type(params["compile"]) is not bool:
+        raise ValueError("compile must be a boolean")
     for key in ("steps",):
         if key in params and (type(params[key]) is not int or not 1 <= params[key] <= 100):
             raise ValueError("steps must be an integer from 1 to 100")
@@ -44,6 +46,7 @@ def validate_request(request, model):
         if type(number) not in (int, float) or not math.isfinite(number) or not 0 <= number <= 20:
             raise ValueError("guidance must be a finite number from 0 to 20")
     allowed = {
+        "attention_backend": {"flash", "cudnn"},
         "bot_task": {"image", "recaption", "think_recaption"},
         "preset": {"V4_QUALITY_48", "V4_DEFAULT_20", "V4_TURBO_12"},
         "prompt_mode": {"template", "json", "magic"}

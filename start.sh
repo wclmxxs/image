@@ -17,7 +17,7 @@ while [[ $# -gt 0 ]]; do
     --ask-hf-token) ASK_HF_TOKEN=1; shift ;;
     --no-gpu-cleanup) CLEAN_GPU=0; shift ;;
     --help|-h)
-      echo 'Usage: ./start.sh [--profile aws-8xh200] [--models cosmos,cosmos-4step,flux,flux-turbo,ideogram,ideogram-instant,hunyuan,hunyuan-distil,mage] [--install-runtime] [--check | --check-access] [--ask-hf-token] [--no-gpu-cleanup]'
+      echo 'Usage: ./start.sh [--profile aws-8xh200] [--models cosmos,cosmos-4step,flux,flux-turbo,ideogram,ideogram-instant,ideogram-instant-fast,hunyuan,hunyuan-distil,mage] [--install-runtime] [--check | --check-access] [--ask-hf-token] [--no-gpu-cleanup]'
       exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
@@ -133,6 +133,11 @@ for worker_image in "${BUILT_IMAGES[@]}"; do
   docker run --rm --gpus all --entrypoint python3 "$worker_image" -c \
     'import torch; assert torch.cuda.device_count() == 8; print("CUDA kernel check:", [torch.ones(1, device=f"cuda:{i}").sum().item() for i in range(8)])'
 done
+# Validate head_dim=256 Flash attention on the actual GPU before enabling the fast profile.
+if [[ ",$MODELS," == *,ideogram-instant-fast,* ]]; then
+  docker run --rm --gpus 'device=0' --entrypoint python3 image-lab/ideogram-instant:0.1.0 \
+    -m image_lab.ideogram_fast --self-test
+fi
 # Catch a launcher that restarted a workload while CUDA checks were running.
 python3 scripts/gpu_cleanup.py --check
 docker compose up -d --force-recreate --wait --wait-timeout 90

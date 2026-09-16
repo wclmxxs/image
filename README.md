@@ -86,6 +86,47 @@ GPU 清理会先记录 PID、容器、systemd 服务和显存占用：
 
 ## 按模型名测试
 
+### Ideogram 单卡原生 2K 加速实验
+
+`ideogram-instant-fast` 以单张 H200、原生 2048×2048、接近 4 秒为目标；**尚未取得这条新路径的 H200 延迟和完整画质回归结果，4 秒不是已达成的性能声明。** 沿用公开 Instant BF16 权重和固定 8 步调度，不缩图、不超分、不量化、不跳步。原来的 `ideogram-instant` 仍作为基线。
+
+```bash
+git pull --ff-only && ./start.sh --models ideogram-instant,ideogram-instant-fast
+
+./lab generate --model ideogram-instant-fast --prompt-file config/fox-caption.json \
+  --width 2048 --height 2048 --parameters '{"prompt_mode":"json"}' \
+  --profiling off --output results/ideogram-fast-2k.png
+
+./lab benchmark --cases config/benchmark-ideogram-2k.jsonl \
+  --warmup 2 --repeat 10 --profiling off --output results/ideogram-2k-speed
+./lab analyze-latency results/ideogram-2k-speed --target-seconds 4
+
+./lab benchmark --cases config/benchmark-ideogram-quality.jsonl \
+  --warmup 1 --repeat 2 --profiling off --output results/ideogram-2k-quality
+```
+
+已有 `ideogram-instant` 缓存会直接复用同一份权重和辅助组件，不重新复制约 18.56GB transformer，也不需要重新申请权限。只启动 fast 时同样会自动准备基线权重。启动脚本在清理 GPU 后执行一次小模型 GPU 数值检查，验证当前 GPU 支持 head_dim=256 的 Flash 路径；这不是生产模型画质验收。
+
+这条路径的改动：
+
+- 校验布局确实为单样本 `[padding][text][image]`，有效 token 属于一个段并与 padding 隔离后才移除 padding。保留原始位置编码和全部图像 token（2K 为 16,384 个）。不支持的布局明确失败。
+- 只在有效文本 token 上做 53,248 维条件投影，每个请求一次；复用文本条件、角色 embedding、RoPE。不会复用依赖当前图像噪声的 attention K/V，也不跨请求缓存文本条件。
+- 省去图像位置的零文本特征重复计算，以及蒸馏版的零无条件分支。保留同样的 float32 latent、时间表和 VAE 解码。
+- 使用强制的 PyTorch Flash Attention，可用 `"attention_backend":"cudnn"` 对比 cuDNN attention；不支持时失败，不静默回退。这里的 Flash 是 PyTorch 自带实现，未宣称安装或启用 FA3。
+- 默认对重复 Transformer block 做动态长度编译，持久化编译缓存。首轮包含编译开销，可能很慢，必须排除；`"compile":false` 可单独测 eager 加速。当前采用 `max-autotune-no-cudagraphs`，不把 CUDA Graph 收益计入预期。
+
+速度配置会对比：原基线、Flash eager、Flash compiled、cuDNN compiled。每个案例都保留 JSON 和原生 PNG。质量配置覆盖文字海报、人物双手和多主体关系，须检查实际图像，数值检查不能代替画质评估。
+
+响应 `result.optimization` 包含选定的 attention 后端、编译模式、文本/图像 token 数、移除的 padding 数、首次形状请求和 8 次去噪调用数。`timings.phases.conditioning_prepare` 单列固定条件准备耗时；`denoiser` 是优化后的完整去噪前向。
+
+`analyze-latency` 排除 warmup、冷启动和首次形状请求，以未开 profiler 的 warm 生成 P95 判断目标，至少需要 10 个样本；同时单列服务耗时。10 个样本只能初步判断，正式验收需扩大提示词和样本数量。`pass` 仅表示该组样本的生成延迟满足目标，不表示画质、网络、排队或服务端总耗时通过。`detailed` 会另外产生显著的采样整理开销，仅在定位瓶颈时使用。
+
+本地数值测试使用 Diffusers 0.39.0 的真实 Transformer 小权重，比较 BF16/FP32 前向和完整 8 步 latent，以及 Dynamo fullgraph 捕获；这些 CPU 测试不验证 CUDA Inductor 性能。带依赖环境可运行：
+
+```bash
+python -m pytest tests/test_ideogram_fast_numerics.py -q
+```
+
 `./lab` 自动读取服务器 `.env`，只依赖系统 Python：
 
 ```bash

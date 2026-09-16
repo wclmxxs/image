@@ -209,6 +209,71 @@
       }
     ]
   },
+  "ideogram-instant-fast": {
+    "name": "Ideogram 4 Instant Fast",
+    "aliases": [
+      "ideogram4-instant-fast",
+      "ideogram-native-2k"
+    ],
+    "backend": "ideogram-instant",
+    "image": "image-lab/ideogram-instant:0.1.0",
+    "gpus": [
+      0
+    ],
+    "repo": "fal/ideogram-v4-instant",
+    "revision": "d47b425d7ee14f5add208adeab68e7dbfc18cf51",
+    "code_revision": "diffusers@v0.39.0; ideogram4@990fe1c4e950bb9e9dc90e01c0ad98ba434f83c2; image_lab/ideogram_fast.py@native-v1",
+    "dtype": "bfloat16 (pre-QAD)",
+    "tasks": [
+      "text-to-image"
+    ],
+    "max_images": 0,
+    "multiple": 16,
+    "defaults": {
+      "steps": 8,
+      "guidance": 1.0,
+      "prompt_mode": "template",
+      "compile": true,
+      "attention_backend": "flash"
+    },
+    "parameters": [
+      "steps",
+      "guidance",
+      "prompt_mode",
+      "compile",
+      "attention_backend"
+    ],
+    "license": "Ideogram Non-Commercial Model Agreement; separate authorization required for commercial deployment",
+    "allow_patterns": [
+      "transformer/*",
+      "README.md",
+      "LICENSE.md",
+      "NOTICE"
+    ],
+    "fixed_parameters": {
+      "steps": 8,
+      "guidance": 1.0
+    },
+    "distilled": true,
+    "auxiliary": [
+      {
+        "role": "components",
+        "repo": "ideogram-ai/ideogram-4-nf4-diffusers",
+        "revision": "1874bc70267ba2c823a7239e1d70dd308c8d64dc",
+        "patterns": [
+          "model_index.json",
+          "scheduler/*",
+          "text_encoder/*",
+          "tokenizer/*",
+          "vae/*",
+          "LICENSE.md"
+        ],
+        "probe": "text_encoder/model.safetensors"
+      }
+    ],
+    "weights_from": "ideogram-instant",
+    "optimization_profile": "ideogram-native-v1"
+  },
   "mage": {
     "name": "Mage-Flow-Edit", "aliases": ["mage-flow-edit", "mage-edit"],
     "backend": "mage", "image": "image-lab/mage:0.1.0", "gpus": [0],

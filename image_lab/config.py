@@ -42,6 +42,21 @@ class Registry:
             model["id"] = key
             for alias in [key, model["name"], *model["aliases"]]:
                 self.aliases[alias.lower()] = key
+        for model in self.models.values():
+            if source := model.get("weights_from"):
+                shared = self.models.get(source)
+                if shared is None or shared.get("weights_from") or source == model["id"]:
+                    raise ValueError(f"Invalid shared weight source: {source}")
+                for field in (
+                    "repo",
+                    "revision",
+                    "auxiliary",
+                    "allow_patterns",
+                    "ignore_patterns",
+                    "base_model",
+                ):
+                    if model.get(field) != shared.get(field):
+                        raise ValueError(f"Shared weights differ in {field}: {model['id']} / {source}")
 
     def resolve(self, name):
         key = self.aliases.get(name.lower())
@@ -61,6 +76,11 @@ class Registry:
             if key in done:
                 return
             visiting.add(key)
+            if model.get("weights_from"):
+                visit(model["weights_from"])
+                visiting.remove(key)
+                done.add(key)
+                return
             if model.get("base_model"):
                 visit(model["base_model"])
             visiting.remove(key)
@@ -81,7 +101,7 @@ class Registry:
         return {"id": base["id"], **{key: prepared[key] for key in ("repo", "revision", "path")}}
 
     def prepared(self, model):
-        marker = self.settings.root / "prepared" / f"{model['id']}.json"
+        marker = self.settings.root / "prepared" / f"{model.get('weights_from', model['id'])}.json"
         if not marker.exists():
             return None
         item = read_json(marker)
